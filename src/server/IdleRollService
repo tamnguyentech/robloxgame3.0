@@ -1,0 +1,165 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+
+local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local IdleRollProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("IdleRollProtocol"))
+local AutoRollRuntime = require(script.Parent:WaitForChild("AutoRollRuntime"))
+
+local saveManagerBridge = ServerStorage:WaitForChild("SaveManagerBridge")
+
+local BASE_AUTO_ROLL_INTERVAL = 2
+local TICK_INTERVAL = 0.2
+
+local IDLE_ROLL_RARITY_RATES = {
+	God = 0.01,
+	Legendary = 1,
+	Epic = 9,
+	Rare = 30,
+	Uncommon = 59.99,
+}
+
+local elapsedByUserId = {}
+local autoRollEnabledByUserId = {}
+
+local function ensureRemoteFolder()
+	local folder = ReplicatedStorage:FindFirstChild(IdleRollProtocol.Remotes.FolderName)
+	if folder and folder:IsA("Folder") then
+		return folder
+	end
+	if folder then
+		folder:Destroy()
+	end
+	folder = Instance.new("Folder")
+	folder.Name = IdleRollProtocol.Remotes.FolderName
+	folder.Parent = ReplicatedStorage
+	return folder
+end
+
+local function ensureRemoteEvent(folder, remoteName)
+	local remote = folder:FindFirstChild(remoteName)
+	if remote and remote:IsA("RemoteEvent") then
+		return remote
+	end
+	if remote then
+		remote:Destroy()
+	end
+	remote = Instance.new("RemoteEvent")
+	remote.Name = remoteName
+	remote.Parent = folder
+	return remote
+end
+
+local remotesFolder = ensureRemoteFolder()
+local rewardEvent = ensureRemoteEvent(remotesFolder, IdleRollProtocol.Remotes.RewardEvent)
+local controlEvent = ensureRemoteEvent(remotesFolder, IdleRollProtocol.Remotes.ControlEvent)
+
+controlEvent.OnServerEvent:Connect(function(player, payload)
+	if not (player and player:IsA("Player")) then
+		return
+	end
+
+	if type(payload) ~= "table" then
+		return
+	end
+
+	local enabled = payload.enabled
+	if type(enabled) ~= "boolean" then
+		return
+	end
+
+	autoRollEnabledByUserId[player.UserId] = enabled
+	if not enabled then
+		-- Avoid catch-up bursts when re-enabling after long pauses.
+		elapsedByUserId[player.UserId] = 0
+	end
+end)
+
+local function pickIdleRollRarity()
+	local roll = math.random() * 100
+	local running = 0
+	for _, entry in ipairs({
+		{rarity = "God", weight = IDLE_ROLL_RARITY_RATES.God},
+		{rarity = "Legendary", weight = IDLE_ROLL_RARITY_RATES.Legendary},
+		{rarity = "Epic", weight = IDLE_ROLL_RARITY_RATES.Epic},
+		{rarity = "Rare", weight = IDLE_ROLL_RARITY_RATES.Rare},
+		{rarity = "Uncommon", weight = IDLE_ROLL_RARITY_RATES.Uncommon},
+	}) do
+		running += entry.weight
+		if roll <= running then
+			return entry.rarity
+		end
+	end
+	return "Uncommon"
+end
+
+local function pickIdleRollCardId()
+	local rarity = pickIdleRollRarity()
+	local pool = CardDatabase.GetCardsByRarity(rarity)
+	if #pool == 0 then
+		pool = CardDatabase.GetAllCardIds()
+	end
+	if #pool == 0 then
+		return nil
+	end
+	return pool[math.random(1, #pool)]
+end
+
+local function grantIdleCard(player, cardId)
+	local ok, success, stateOrReason = pcall(function()
+		return saveManagerBridge:Invoke("ExecuteEconomyDelta", {
+			userId = player.UserId,
+			grantCards = {cardId},
+			rollCountDelta = 1,
+		})
+	end)
+	if not ok then
+		warn("Idle roll grant failed: " .. tostring(success))
+		return
+	end
+
+	if success == false then
+		warn("Idle roll grant rejected: " .. tostring(stateOrReason))
+		return
+	end
+
+	local state = (type(stateOrReason) == "table") and stateOrReason or nil
+
+	rewardEvent:FireClient(player, {
+		cardId = cardId,
+		rollCount = state and state.rollCount,
+		level = state and state.level,
+	})
+end
+
+task.spawn(function()
+	while true do
+		task.wait(TICK_INTERVAL)
+		for _, player in ipairs(Players:GetPlayers()) do
+			if autoRollEnabledByUserId[player.UserId] == false then
+				elapsedByUserId[player.UserId] = 0
+				continue
+			end
+
+			local multiplier = AutoRollRuntime.GetAutoRollMultiplier(player.UserId)
+			local interval = BASE_AUTO_ROLL_INTERVAL / multiplier
+			local currentElapsed = (elapsedByUserId[player.UserId] or 0) + TICK_INTERVAL
+
+			while currentElapsed >= interval do
+				currentElapsed -= interval
+				local cardId = pickIdleRollCardId()
+				if cardId then
+					grantIdleCard(player, cardId)
+				end
+			end
+
+			elapsedByUserId[player.UserId] = currentElapsed
+		end
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	elapsedByUserId[player.UserId] = nil
+	autoRollEnabledByUserId[player.UserId] = nil
+	AutoRollRuntime.ClearPlayer(player.UserId)
+end)

@@ -1,0 +1,190 @@
+local ItemsTab = {}
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local EconomyProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("EconomyProtocol"))
+local EconomyClient = require(script.Parent.Parent:WaitForChild("services"):WaitForChild("EconomyClient"))
+
+local TAB_IMAGE = "rbxassetid://0"
+local AUTO_ROLL_ITEM_ID = "AutoRoll2x20s"
+
+function ItemsTab.GetId()
+	return "Items"
+end
+
+function ItemsTab.GetLabel()
+	return "Items"
+end
+
+function ItemsTab.GetImage()
+	return TAB_IMAGE
+end
+
+function ItemsTab.GetOrCreateFrame(mainUI, inventoryFrame)
+	local itemsFrame = mainUI:FindFirstChild("ItemsFrame")
+	if itemsFrame then
+		return itemsFrame
+	end
+
+	itemsFrame = Instance.new("ScrollingFrame")
+	itemsFrame.Name = "ItemsFrame"
+	itemsFrame.Size = inventoryFrame.Size
+	itemsFrame.Position = inventoryFrame.Position
+	itemsFrame.AnchorPoint = inventoryFrame.AnchorPoint
+	itemsFrame.BackgroundTransparency = inventoryFrame.BackgroundTransparency
+	itemsFrame.BackgroundColor3 = inventoryFrame.BackgroundColor3
+	itemsFrame.BorderSizePixel = 0
+	itemsFrame.ScrollBarThickness = 8
+	itemsFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+	itemsFrame.Visible = false
+	itemsFrame.Parent = mainUI
+
+	local buffEvent = ReplicatedStorage:FindFirstChild("AutoRollBuffEvent")
+	if not buffEvent then
+		buffEvent = Instance.new("BindableEvent")
+		buffEvent.Name = "AutoRollBuffEvent"
+		buffEvent.Parent = ReplicatedStorage
+	end
+
+	local ownedValue = ReplicatedStorage:FindFirstChild("ItemOwned_AutoRoll2x20s")
+	if not (ownedValue and ownedValue:IsA("IntValue")) then
+		if ownedValue then
+			ownedValue:Destroy()
+		end
+		ownedValue = Instance.new("IntValue")
+		ownedValue.Name = "ItemOwned_AutoRoll2x20s"
+		ownedValue.Value = 0
+		ownedValue.Parent = ReplicatedStorage
+	end
+
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Name = "TitleLabel"
+	titleLabel.Size = UDim2.new(1, -20, 0, 36)
+	titleLabel.Position = UDim2.new(0, 10, 0, 8)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = "Owned Items"
+	titleLabel.TextColor3 = Color3.new(1, 1, 1)
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+	titleLabel.Font = Enum.Font.SourceSansBold
+	titleLabel.TextSize = 24
+	titleLabel.Parent = itemsFrame
+
+	local row = Instance.new("Frame")
+	row.Name = "AutoRollBoostRow"
+	row.Size = UDim2.new(1, -20, 0, 74)
+	row.Position = UDim2.new(0, 10, 0, 52)
+	row.BackgroundColor3 = Color3.fromRGB(38, 38, 44)
+	row.BorderSizePixel = 0
+	row.Parent = itemsFrame
+
+	local rowCorner = Instance.new("UICorner")
+	rowCorner.CornerRadius = UDim.new(0, 8)
+	rowCorner.Parent = row
+
+	local icon = Instance.new("ImageLabel")
+	icon.Name = "ItemIcon"
+	icon.Size = UDim2.new(0, 56, 0, 56)
+	icon.Position = UDim2.new(0, 8, 0, 9)
+	icon.BackgroundColor3 = Color3.fromRGB(52, 52, 60)
+	icon.BorderSizePixel = 0
+	icon.Image = "rbxassetid://72066453841625"
+	icon.Parent = row
+
+	local iconCorner = Instance.new("UICorner")
+	iconCorner.CornerRadius = UDim.new(0, 6)
+	iconCorner.Parent = icon
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "ItemName"
+	nameLabel.Size = UDim2.new(1, -220, 0, 28)
+	nameLabel.Position = UDim2.new(0, 72, 0, 8)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = "2x Auto Roll Boost"
+	nameLabel.TextColor3 = Color3.new(1, 1, 1)
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.Font = Enum.Font.SourceSansBold
+	nameLabel.TextSize = 20
+	nameLabel.Parent = row
+
+	local descLabel = Instance.new("TextLabel")
+	descLabel.Name = "ItemDesc"
+	descLabel.Size = UDim2.new(1, -300, 0, 24)
+	descLabel.Position = UDim2.new(0, 72, 0, 38)
+	descLabel.BackgroundTransparency = 1
+	descLabel.Text = "Doubles auto-roll speed for 20 seconds"
+	descLabel.TextColor3 = Color3.fromRGB(210, 210, 210)
+	descLabel.TextXAlignment = Enum.TextXAlignment.Left
+	descLabel.Font = Enum.Font.SourceSans
+	descLabel.TextSize = 17
+	descLabel.Parent = row
+
+	local ownedLabel = Instance.new("TextLabel")
+	ownedLabel.Name = "OwnedLabel"
+	ownedLabel.Size = UDim2.new(0, 92, 0, 24)
+	ownedLabel.Position = UDim2.new(1, -236, 0.5, -12)
+	ownedLabel.BackgroundTransparency = 1
+	ownedLabel.Text = "Owned: 0"
+	ownedLabel.TextColor3 = Color3.fromRGB(230, 230, 230)
+	ownedLabel.TextXAlignment = Enum.TextXAlignment.Left
+	ownedLabel.Font = Enum.Font.SourceSansBold
+	ownedLabel.TextSize = 17
+	ownedLabel.Parent = row
+
+	local useButton = Instance.new("TextButton")
+	useButton.Name = "UseButton"
+	useButton.Size = UDim2.new(0, 132, 0, 40)
+	useButton.Position = UDim2.new(1, -142, 0.5, -20)
+	useButton.BackgroundColor3 = Color3.fromRGB(70, 70, 74)
+	useButton.BorderSizePixel = 0
+	useButton.TextColor3 = Color3.new(1, 1, 1)
+	useButton.Font = Enum.Font.SourceSansBold
+	useButton.TextSize = 18
+	useButton.Text = "Use"
+	useButton.AutoButtonColor = false
+	useButton.Parent = row
+
+	local buttonCorner = Instance.new("UICorner")
+	buttonCorner.CornerRadius = UDim.new(0, 7)
+	buttonCorner.Parent = useButton
+
+	local function refreshOwnedUi()
+		local ownedCount = ownedValue.Value
+		ownedLabel.Text = "Owned: " .. tostring(ownedCount)
+		local canUse = ownedCount > 0
+		useButton.Active = canUse
+		useButton.AutoButtonColor = canUse
+		useButton.BackgroundColor3 = canUse and Color3.fromRGB(65, 118, 195) or Color3.fromRGB(70, 70, 74)
+	end
+
+	useButton.MouseButton1Click:Connect(function()
+		if ownedValue.Value <= 0 then
+			return
+		end
+
+		local ok, responseOrErr = EconomyClient.Request(EconomyProtocol.ActionType.UseItem, {
+			itemId = AUTO_ROLL_ITEM_ID,
+			amount = 1,
+		})
+		if not ok then
+			useButton.Text = "Failed"
+			warn("Failed to use item: " .. tostring(responseOrErr))
+		else
+			if type(responseOrErr.effect) == "table" then
+				buffEvent:Fire(responseOrErr.effect)
+			end
+			useButton.Text = "Used!"
+		end
+
+		task.delay(0.4, function()
+			if useButton and useButton.Parent then
+				useButton.Text = "Use"
+			end
+		end)
+	end)
+
+	ownedValue:GetPropertyChangedSignal("Value"):Connect(refreshOwnedUi)
+
+	refreshOwnedUi()
+
+	return itemsFrame
+end
+
+return ItemsTab

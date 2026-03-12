@@ -1,0 +1,993 @@
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local mainUI = playerGui:WaitForChild("MainUI")
+local BoosterPackSystem = require(script.Parent:WaitForChild("BoosterPackSystem"))
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local EconomyCatalog = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("EconomyCatalog"))
+local EconomyProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("EconomyProtocol"))
+local RarityConfig = require(script.Parent:WaitForChild("RarityConfig"))
+local EconomyClient = require(script.Parent:WaitForChild("services"):WaitForChild("EconomyClient"))
+local uiFolder = script.Parent:WaitForChild("ui")
+local HoverPreview = require(uiFolder:WaitForChild("HoverPreview"))
+local artFolder = ReplicatedStorage:WaitForChild("CardArt")
+
+local idleEvent = ReplicatedStorage:FindFirstChild("IdleCardEvent")
+if not idleEvent then
+	idleEvent = Instance.new("BindableEvent")
+	idleEvent.Name = "IdleCardEvent"
+	idleEvent.Parent = ReplicatedStorage
+end
+
+local function getOrCreateDeckFrame(frameName, fallbackPosition)
+	local existing = mainUI:FindFirstChild(frameName)
+	if existing and existing:IsA("ScrollingFrame") then
+		return existing
+	end
+	if existing then
+		existing:Destroy()
+	end
+
+	local frame = Instance.new("ScrollingFrame")
+	frame.Name = frameName
+	frame.Size = UDim2.fromOffset(760, 320)
+	frame.Position = fallbackPosition
+	frame.AnchorPoint = Vector2.new(0, 0)
+	frame.BackgroundColor3 = Color3.fromRGB(24, 24, 24)
+	frame.BackgroundTransparency = 0.08
+	frame.BorderSizePixel = 0
+	frame.ScrollBarThickness = 8
+	frame.CanvasSize = UDim2.new(0, 0, 0, 0)
+	frame.Visible = false
+	frame.ZIndex = 2
+	frame.ClipsDescendants = true
+	frame.Parent = mainUI
+
+	return frame
+end
+
+local inventoryFrame = getOrCreateDeckFrame("InventoryFrame", UDim2.fromOffset(190, 20))
+local combatDeckFrame = getOrCreateDeckFrame("CombatDeckFrame", UDim2.fromOffset(190, 360))
+
+-- Replace with your own icon assets when ready.
+local DECKS_ICON_IMAGE = "rbxassetid://0"
+local SHOP_ICON_IMAGE = "rbxassetid://0"
+local SORT_ICON_IMAGE = "rbxassetid://0"
+
+local TOGGLE_BUTTON_WIDTH = 108
+local TOGGLE_BUTTON_HEIGHT = 36
+local TOGGLE_GAP = 8
+local SHOP_FRAME_WIDTH = 430
+local SHOP_FRAME_HEIGHT = 300
+local SHOP_FRAME_RIGHT_MARGIN = 110
+local SHOP_FRAME_TOP_MARGIN = 20
+local BELIODUS_CARD_ID = "AstraEclipse"
+local AUTO_ROLL_ITEM_ID = "AutoRoll2x20s"
+local AUTO_ROLL_ITEM_OFFER = EconomyCatalog.GetItemOffer(AUTO_ROLL_ITEM_ID) or {Price = 25}
+local BELIODUS_CARD_OFFER = EconomyCatalog.GetDirectCardOffer(BELIODUS_CARD_ID) or {Price = 1}
+
+local function getPreviewRarityColor(rarity)
+	if rarity == "God" or rarity == "Transcendent" then
+		return Color3.fromRGB(8, 8, 8)
+	end
+	return RarityConfig.GetPreviewRarityColor(rarity)
+end
+
+local function getCurrencyValueObject()
+	local valueObj = ReplicatedStorage:FindFirstChild("PlayerCurrencyValue")
+	if not (valueObj and valueObj:IsA("IntValue")) then
+		if valueObj then
+			valueObj:Destroy()
+		end
+		valueObj = Instance.new("IntValue")
+		valueObj.Name = "PlayerCurrencyValue"
+		valueObj.Value = 0
+		valueObj.Parent = ReplicatedStorage
+	end
+	return valueObj
+end
+
+local function getOrCreateIntValue(name, defaultValue)
+	local valueObj = ReplicatedStorage:FindFirstChild(name)
+	if not (valueObj and valueObj:IsA("IntValue")) then
+		if valueObj then
+			valueObj:Destroy()
+		end
+		valueObj = Instance.new("IntValue")
+		valueObj.Name = name
+		valueObj.Value = defaultValue or 0
+		valueObj.Parent = ReplicatedStorage
+	end
+	return valueObj
+end
+
+local function getOrCreateBoolValue(name, defaultValue)
+	local valueObj = ReplicatedStorage:FindFirstChild(name)
+	if not (valueObj and valueObj:IsA("BoolValue")) then
+		if valueObj then
+			valueObj:Destroy()
+		end
+		valueObj = Instance.new("BoolValue")
+		valueObj.Name = name
+		valueObj.Value = defaultValue == true
+		valueObj.Parent = ReplicatedStorage
+	end
+	return valueObj
+end
+
+local function getOrCreateBindableEvent(name)
+	local ev = ReplicatedStorage:FindFirstChild(name)
+	if not (ev and ev:IsA("BindableEvent")) then
+		if ev then
+			ev:Destroy()
+		end
+		ev = Instance.new("BindableEvent")
+		ev.Name = name
+		ev.Parent = ReplicatedStorage
+	end
+	return ev
+end
+
+local currencyValue = getCurrencyValueObject()
+local sellModeEnabledValue = getOrCreateBoolValue("ShopSellModeEnabled", false)
+local selectedSellCountValue = getOrCreateIntValue("ShopSellSelectedCount", 0)
+local selectedSellCoinsValue = getOrCreateIntValue("ShopSellSelectedCoins", 0)
+local hoverVideoPreviewActiveValue = getOrCreateBoolValue("HoverVideoPreviewActive", false)
+local confirmSellSelectionEvent = getOrCreateBindableEvent("ConfirmSellSelectionEvent")
+local hoverPreview = HoverPreview.Init(mainUI, artFolder, {
+	stripImage = "rbxassetid://137460001724797",
+	stripThickness = 20,
+	stripOverdraw = 8,
+	stripTileSize = 26,
+	stripTransparency = 0.2,
+	stripScrollSpeed = 0.6,
+})
+
+local function showShopCardPreview(cardId)
+	if not hoverPreview then
+		return
+	end
+	local data = CardDatabase.GetCardData(cardId)
+	if not data then
+		return
+	end
+	hoverPreview.Show(cardId, data, getPreviewRarityColor(data.Rarity))
+end
+
+local function hideShopCardPreview()
+	if hoverPreview then
+		hoverPreview.Hide(0.04)
+	end
+end
+
+local function styleToggleButton(button, text, bgColor, iconImage)
+	button.AnchorPoint = Vector2.new(0, 0)
+	button.Size = UDim2.fromOffset(TOGGLE_BUTTON_WIDTH, TOGGLE_BUTTON_HEIGHT)
+	button.BackgroundColor3 = bgColor
+	button.BackgroundTransparency = 0.08
+	button.BorderSizePixel = 0
+	button.Text = ""
+	button.AutoButtonColor = true
+	button.Visible = true
+	button.ZIndex = 60
+
+	local corner = button:FindFirstChildOfClass("UICorner")
+	if not corner then
+		corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 8)
+		corner.Parent = button
+	end
+
+	local stroke = button:FindFirstChildOfClass("UIStroke")
+	if not stroke then
+		stroke = Instance.new("UIStroke")
+		stroke.Thickness = 1
+		stroke.Color = Color3.fromRGB(15, 15, 15)
+		stroke.Transparency = 0.2
+		stroke.Parent = button
+	end
+
+	local icon = button:FindFirstChild("Icon")
+	if not icon then
+		icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
+		icon.Size = UDim2.fromOffset(20, 20)
+		icon.Position = UDim2.new(0, 8, 0.5, -10)
+		icon.BackgroundTransparency = 1
+		icon.ZIndex = 61
+		icon.Parent = button
+	end
+	icon.Image = iconImage
+
+	local label = button:FindFirstChild("Label")
+	if not label then
+		label = Instance.new("TextLabel")
+		label.Name = "Label"
+		label.Size = UDim2.new(1, -34, 1, 0)
+		label.Position = UDim2.fromOffset(30, 0)
+		label.BackgroundTransparency = 1
+		label.TextColor3 = Color3.new(1, 1, 1)
+		label.Font = Enum.Font.SciFi
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		label.TextSize = 17
+		label.ZIndex = 61
+		label.Parent = button
+	end
+	label.Text = text
+end
+
+local inventoryToggleButton = mainUI:FindFirstChild("InventoryToggleButton")
+if not inventoryToggleButton or not inventoryToggleButton:IsA("TextButton") then
+	if inventoryToggleButton then
+		inventoryToggleButton:Destroy()
+	end
+	inventoryToggleButton = Instance.new("TextButton")
+	inventoryToggleButton.Name = "InventoryToggleButton"
+	inventoryToggleButton.Parent = mainUI
+end
+inventoryToggleButton.Position = UDim2.fromOffset(16, 16)
+styleToggleButton(inventoryToggleButton, "Decks", Color3.fromRGB(52, 92, 158), DECKS_ICON_IMAGE)
+
+local sortToggleButton = mainUI:FindFirstChild("InventorySortButton")
+if not sortToggleButton or not sortToggleButton:IsA("TextButton") then
+	if sortToggleButton then
+		sortToggleButton:Destroy()
+	end
+	sortToggleButton = Instance.new("TextButton")
+	sortToggleButton.Name = "InventorySortButton"
+	sortToggleButton.Parent = mainUI
+end
+sortToggleButton.Position = UDim2.fromOffset(132, 16)
+styleToggleButton(sortToggleButton, "Sort", Color3.fromRGB(132, 96, 42), SORT_ICON_IMAGE)
+
+local shopToggleButton = mainUI:FindFirstChild("ShopToggleButton")
+if not shopToggleButton or not shopToggleButton:IsA("TextButton") then
+	if shopToggleButton then
+		shopToggleButton:Destroy()
+	end
+	shopToggleButton = Instance.new("TextButton")
+	shopToggleButton.Name = "ShopToggleButton"
+	shopToggleButton.Parent = mainUI
+end
+shopToggleButton.Position = UDim2.fromOffset(132, 16)
+styleToggleButton(shopToggleButton, "Shop", Color3.fromRGB(44, 126, 72), SHOP_ICON_IMAGE)
+
+local function layoutTogglesByTabBar()
+	local baseX = inventoryFrame.Position.X.Offset
+	local baseY = inventoryFrame.Position.Y.Offset - 42
+	inventoryToggleButton.Position = UDim2.fromOffset(baseX, baseY)
+	shopToggleButton.Position = UDim2.fromOffset(baseX + TOGGLE_BUTTON_WIDTH + TOGGLE_GAP, baseY)
+	sortToggleButton.Position = UDim2.fromOffset(baseX + ((TOGGLE_BUTTON_WIDTH + TOGGLE_GAP) * 2), baseY)
+end
+
+layoutTogglesByTabBar()
+
+local function hookTabBarLayoutSync()
+	local tabBar = mainUI:FindFirstChild("InventoryTabBar")
+	if not (tabBar and tabBar:IsA("Frame")) then
+		return
+	end
+	tabBar:GetPropertyChangedSignal("Position"):Connect(layoutTogglesByTabBar)
+	tabBar:GetPropertyChangedSignal("Size"):Connect(layoutTogglesByTabBar)
+	tabBar:GetPropertyChangedSignal("Visible"):Connect(layoutTogglesByTabBar)
+end
+
+hookTabBarLayoutSync()
+
+inventoryFrame:GetPropertyChangedSignal("Position"):Connect(layoutTogglesByTabBar)
+
+mainUI.ChildAdded:Connect(function(child)
+	if child.Name == "InventoryTabBar" then
+		layoutTogglesByTabBar()
+		hookTabBarLayoutSync()
+	end
+end)
+
+local shopFrame = mainUI:FindFirstChild("ShopFrame")
+if not shopFrame then
+	shopFrame = Instance.new("Frame")
+	shopFrame.Name = "ShopFrame"
+	shopFrame.Size = UDim2.fromOffset(SHOP_FRAME_WIDTH, SHOP_FRAME_HEIGHT)
+	shopFrame.Position = UDim2.new(1, -SHOP_FRAME_RIGHT_MARGIN, 0, SHOP_FRAME_TOP_MARGIN)
+	shopFrame.AnchorPoint = Vector2.new(1, 0)
+	shopFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+	shopFrame.BackgroundTransparency = 0.15
+	shopFrame.BorderSizePixel = 0
+	shopFrame.Visible = false
+	shopFrame.Parent = mainUI
+
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.new(1, -20, 0, 36)
+	title.Position = UDim2.fromOffset(10, 8)
+	title.BackgroundTransparency = 1
+	title.Text = "Booster Pack Shop"
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.TextColor3 = Color3.new(1, 1, 1)
+	title.Font = Enum.Font.SourceSansBold
+	title.TextSize = 24
+	title.Parent = shopFrame
+
+	local currencyLabel = Instance.new("TextLabel")
+	currencyLabel.Name = "CurrencyLabel"
+	currencyLabel.Size = UDim2.fromOffset(170, 30)
+	currencyLabel.Position = UDim2.new(1, -180, 0, 8)
+	currencyLabel.BackgroundTransparency = 1
+	currencyLabel.TextXAlignment = Enum.TextXAlignment.Right
+	currencyLabel.TextColor3 = Color3.fromRGB(248, 232, 168)
+	currencyLabel.Font = Enum.Font.SourceSansBold
+	currencyLabel.TextSize = 24
+	currencyLabel.Text = "Coins: 0"
+	currencyLabel.Parent = shopFrame
+
+	local packList = Instance.new("ScrollingFrame")
+	packList.Name = "PackList"
+	packList.Size = UDim2.new(1, -20, 1, -58)
+	packList.Position = UDim2.fromOffset(10, 46)
+	packList.BackgroundTransparency = 1
+	packList.BorderSizePixel = 0
+	packList.ScrollBarThickness = 8
+	packList.ScrollingDirection = Enum.ScrollingDirection.Y
+	packList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	packList.CanvasSize = UDim2.new(0, 0, 0, 0)
+	packList.Parent = shopFrame
+
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.Padding = UDim.new(0, 8)
+	listLayout.FillDirection = Enum.FillDirection.Vertical
+	listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	listLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+	listLayout.Parent = packList
+
+	for _, pack in ipairs(BoosterPackSystem.GetPacks()) do
+		local row = Instance.new("Frame")
+		row.Name = pack.Id .. "ShopRow"
+		row.Size = UDim2.new(1, 0, 0, 64)
+		row.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		row.BorderSizePixel = 0
+		row.Parent = packList
+
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
+		icon.Size = UDim2.fromOffset(56, 56)
+		icon.Position = UDim2.fromOffset(4, 4)
+		icon.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+		icon.BorderSizePixel = 0
+		icon.Image = pack.Image
+		icon.Parent = row
+
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Size = UDim2.new(1, -190, 0, 30)
+		nameLabel.Position = UDim2.fromOffset(68, 4)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		nameLabel.TextColor3 = Color3.new(1, 1, 1)
+		nameLabel.Font = Enum.Font.SourceSansBold
+		nameLabel.TextSize = 20
+		nameLabel.Text = pack.Name
+		nameLabel.Parent = row
+
+		local infoLabel = Instance.new("TextLabel")
+		infoLabel.Size = UDim2.new(1, -190, 0, 24)
+		infoLabel.Position = UDim2.fromOffset(68, 34)
+		infoLabel.BackgroundTransparency = 1
+		infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+		infoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+		infoLabel.Font = Enum.Font.SourceSans
+		infoLabel.TextSize = 18
+		infoLabel.Text = "Price: " .. tostring(pack.Price) .. " | Cards: " .. tostring(pack.CardsPerOpen or pack.CardsPerPack or 10)
+		infoLabel.Parent = row
+
+		local buyButton = Instance.new("TextButton")
+		buyButton.Name = "BuyButton"
+		buyButton.Size = UDim2.fromOffset(110, 36)
+		buyButton.Position = UDim2.new(1, -116, 0.5, -18)
+		buyButton.BackgroundColor3 = Color3.fromRGB(35, 120, 55)
+		buyButton.BorderSizePixel = 0
+		buyButton.TextColor3 = Color3.new(1, 1, 1)
+		buyButton.Font = Enum.Font.SourceSansBold
+		buyButton.TextSize = 18
+		buyButton.Text = "Buy"
+		buyButton.Parent = row
+
+		buyButton.MouseButton1Click:Connect(function()
+			local ok, responseOrErr = EconomyClient.Request(EconomyProtocol.ActionType.BuyPack, {
+				packId = pack.Id,
+				amount = 1,
+			})
+			if ok then
+				buyButton.Text = "Bought!"
+				task.delay(0.6, function()
+					if buyButton and buyButton.Parent then
+						buyButton.Text = "Buy"
+					end
+				end)
+			else
+				buyButton.Text = "Failed"
+				task.delay(0.6, function()
+					if buyButton and buyButton.Parent then
+						buyButton.Text = "Buy"
+					end
+				end)
+				warn("Failed to buy pack: " .. tostring(responseOrErr))
+			end
+		end)
+	end
+
+	local itemRow = Instance.new("Frame")
+	itemRow.Name = "AutoRollItemShopRow"
+	itemRow.Size = UDim2.new(1, 0, 0, 64)
+	itemRow.BackgroundColor3 = Color3.fromRGB(44, 44, 50)
+	itemRow.BorderSizePixel = 0
+	itemRow.Parent = packList
+
+	local itemIcon = Instance.new("ImageLabel")
+	itemIcon.Name = "Icon"
+	itemIcon.Size = UDim2.fromOffset(56, 56)
+	itemIcon.Position = UDim2.fromOffset(4, 4)
+	itemIcon.BackgroundColor3 = Color3.fromRGB(60, 60, 66)
+	itemIcon.BorderSizePixel = 0
+	itemIcon.Image = "rbxassetid://72066453841625"
+	itemIcon.Parent = itemRow
+
+	local itemNameLabel = Instance.new("TextLabel")
+	itemNameLabel.Size = UDim2.new(1, -190, 0, 30)
+	itemNameLabel.Position = UDim2.fromOffset(68, 4)
+	itemNameLabel.BackgroundTransparency = 1
+	itemNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	itemNameLabel.TextColor3 = Color3.new(1, 1, 1)
+	itemNameLabel.Font = Enum.Font.SourceSansBold
+	itemNameLabel.TextSize = 20
+	itemNameLabel.Text = "2x Auto Roll Boost"
+	itemNameLabel.Parent = itemRow
+
+	local itemInfoLabel = Instance.new("TextLabel")
+	itemInfoLabel.Size = UDim2.new(1, -190, 0, 24)
+	itemInfoLabel.Position = UDim2.fromOffset(68, 34)
+	itemInfoLabel.BackgroundTransparency = 1
+	itemInfoLabel.TextXAlignment = Enum.TextXAlignment.Left
+	itemInfoLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+	itemInfoLabel.Font = Enum.Font.SourceSans
+	itemInfoLabel.TextSize = 18
+	itemInfoLabel.Text = string.format("2x speed for 20s | Price: %d", AUTO_ROLL_ITEM_OFFER.Price)
+	itemInfoLabel.Parent = itemRow
+
+	local buyItemButton = Instance.new("TextButton")
+	buyItemButton.Name = "BuyButton"
+	buyItemButton.Size = UDim2.fromOffset(110, 36)
+	buyItemButton.Position = UDim2.new(1, -116, 0.5, -18)
+	buyItemButton.BackgroundColor3 = Color3.fromRGB(35, 120, 55)
+	buyItemButton.BorderSizePixel = 0
+	buyItemButton.TextColor3 = Color3.new(1, 1, 1)
+	buyItemButton.Font = Enum.Font.SourceSansBold
+	buyItemButton.TextSize = 18
+	buyItemButton.Text = "Buy"
+	buyItemButton.Parent = itemRow
+
+	buyItemButton.MouseButton1Click:Connect(function()
+		local ok, responseOrErr = EconomyClient.Request(EconomyProtocol.ActionType.BuyItem, {
+			itemId = AUTO_ROLL_ITEM_ID,
+			amount = 1,
+		})
+		if not ok then
+			buyItemButton.Text = "Failed"
+			warn("Failed to buy item: " .. tostring(responseOrErr))
+		else
+			buyItemButton.Text = "Bought!"
+		end
+		task.delay(0.6, function()
+			if buyItemButton and buyItemButton.Parent then
+				buyItemButton.Text = "Buy"
+			end
+		end)
+	end)
+
+	local beliodusRow = Instance.new("Frame")
+	beliodusRow.Name = "BeliodusXShopRow"
+	beliodusRow.Size = UDim2.new(1, 0, 0, 64)
+	beliodusRow.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+	beliodusRow.BorderSizePixel = 0
+	beliodusRow.Parent = packList
+	beliodusRow.Active = true
+
+	local beliodusIcon = Instance.new("ImageLabel")
+	beliodusIcon.Name = "Icon"
+	beliodusIcon.Size = UDim2.fromOffset(56, 56)
+	beliodusIcon.Position = UDim2.fromOffset(4, 4)
+	beliodusIcon.BackgroundColor3 = Color3.fromRGB(16, 16, 16)
+	beliodusIcon.BorderSizePixel = 0
+	beliodusIcon.Image = "rbxassetid://77873660521351"
+	local directCardData = CardDatabase.GetCardData(BELIODUS_CARD_ID)
+	local beliodusArt = artFolder:FindFirstChild(BELIODUS_CARD_ID)
+	local cardVideoAssetId = directCardData and directCardData.VideoAssetId
+	local iconVideo = nil
+	if type(cardVideoAssetId) == "string" and cardVideoAssetId ~= "" and cardVideoAssetId ~= "rbxassetid://0" then
+		iconVideo = Instance.new("VideoFrame")
+		iconVideo.Name = "CardVideo"
+		iconVideo.Size = UDim2.fromScale(1, 1)
+		iconVideo.Position = UDim2.fromOffset(0, 0)
+		iconVideo.BackgroundTransparency = 1
+		iconVideo.BorderSizePixel = 0
+		iconVideo.ZIndex = beliodusIcon.ZIndex + 1
+		iconVideo.Looped = true
+		iconVideo.Video = cardVideoAssetId
+		iconVideo.TimePosition = 1.0
+		iconVideo.Playing = (hoverVideoPreviewActiveValue.Value ~= true)
+		iconVideo.Parent = beliodusIcon
+		beliodusIcon.Image = ""
+	elseif beliodusArt and beliodusArt:IsA("Decal") then
+		beliodusIcon.Image = beliodusArt.Texture
+	end
+	if iconVideo then
+		hoverVideoPreviewActiveValue:GetPropertyChangedSignal("Value"):Connect(function()
+			if iconVideo.Parent then
+				iconVideo.Playing = (hoverVideoPreviewActiveValue.Value ~= true)
+			end
+		end)
+
+		task.spawn(function()
+			local lastPos = nil
+			while iconVideo.Parent do
+				if iconVideo.Visible and iconVideo.Playing then
+					local currentPos = tonumber(iconVideo.TimePosition) or 0
+					if lastPos and currentPos + 0.03 < lastPos and currentPos < 1.0 then
+						iconVideo.TimePosition = 1.0
+						currentPos = 1.0
+					end
+					lastPos = currentPos
+				end
+				task.wait(0.2)
+			end
+		end)
+	end
+	beliodusIcon.Parent = beliodusRow
+
+	local beliodusName = Instance.new("TextLabel")
+	beliodusName.Size = UDim2.new(1, -190, 0, 30)
+	beliodusName.Position = UDim2.fromOffset(68, 4)
+	beliodusName.BackgroundTransparency = 1
+	beliodusName.TextXAlignment = Enum.TextXAlignment.Left
+	beliodusName.TextColor3 = Color3.fromRGB(245, 245, 245)
+	beliodusName.Font = Enum.Font.SourceSansBold
+	beliodusName.TextSize = 20
+	beliodusName.Text = (directCardData and directCardData.Name) or BELIODUS_CARD_ID
+	beliodusName.Parent = beliodusRow
+
+	local beliodusInfo = Instance.new("TextLabel")
+	beliodusInfo.Size = UDim2.new(1, -190, 0, 24)
+	beliodusInfo.Position = UDim2.fromOffset(68, 34)
+	beliodusInfo.BackgroundTransparency = 1
+	beliodusInfo.TextXAlignment = Enum.TextXAlignment.Left
+	beliodusInfo.TextColor3 = Color3.fromRGB(220, 220, 220)
+	beliodusInfo.Font = Enum.Font.SourceSans
+	beliodusInfo.TextSize = 18
+	local rarityLabel = (directCardData and directCardData.Rarity) or "Special"
+	beliodusInfo.Text = string.format("%s Card | Price: %d", rarityLabel, BELIODUS_CARD_OFFER.Price)
+	beliodusInfo.Parent = beliodusRow
+
+	local buyBeliodusButton = Instance.new("TextButton")
+	buyBeliodusButton.Name = "BuyButton"
+	buyBeliodusButton.Size = UDim2.fromOffset(110, 36)
+	buyBeliodusButton.Position = UDim2.new(1, -116, 0.5, -18)
+	buyBeliodusButton.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	buyBeliodusButton.BorderSizePixel = 0
+	buyBeliodusButton.TextColor3 = Color3.fromRGB(245, 245, 245)
+	buyBeliodusButton.Font = Enum.Font.SourceSansBold
+	buyBeliodusButton.TextSize = 18
+	buyBeliodusButton.Text = "Buy"
+	buyBeliodusButton.Parent = beliodusRow
+
+	buyBeliodusButton.MouseButton1Click:Connect(function()
+		local ok, responseOrErr = EconomyClient.Request(EconomyProtocol.ActionType.BuyDirectCard, {
+			cardId = BELIODUS_CARD_ID,
+			amount = 1,
+		})
+		if not ok then
+			if responseOrErr == "AlreadyOwnedTranscendent" then
+				buyBeliodusButton.Text = "Owned"
+			else
+				buyBeliodusButton.Text = "Failed"
+			end
+			warn("Failed to buy card: " .. tostring(responseOrErr))
+		else
+			local grantedCards = responseOrErr.grantedCards
+			if type(grantedCards) == "table" and #grantedCards > 0 then
+				idleEvent:Fire({cardIds = grantedCards})
+			end
+			buyBeliodusButton.Text = "Bought!"
+		end
+		task.delay(0.7, function()
+			if buyBeliodusButton and buyBeliodusButton.Parent then
+				buyBeliodusButton.Text = "Buy"
+			end
+		end)
+	end)
+
+	local function hookShopPreview(gui)
+		gui.MouseEnter:Connect(function()
+			showShopCardPreview(BELIODUS_CARD_ID)
+		end)
+		gui.MouseLeave:Connect(function()
+			hideShopCardPreview()
+		end)
+	end
+
+	hookShopPreview(beliodusRow)
+	hookShopPreview(beliodusIcon)
+	hookShopPreview(beliodusName)
+	hookShopPreview(beliodusInfo)
+end
+
+shopFrame.Size = UDim2.fromOffset(SHOP_FRAME_WIDTH, SHOP_FRAME_HEIGHT)
+shopFrame.Position = UDim2.new(1, -SHOP_FRAME_RIGHT_MARGIN, 0, SHOP_FRAME_TOP_MARGIN)
+shopFrame.AnchorPoint = Vector2.new(1, 0)
+
+local currencyLabel = shopFrame:FindFirstChild("CurrencyLabel")
+local function refreshCurrencyLabel()
+	if currencyLabel and currencyLabel:IsA("TextLabel") then
+		currencyLabel.Text = string.format("Coins: %d", currencyValue.Value)
+	end
+end
+refreshCurrencyLabel()
+currencyValue:GetPropertyChangedSignal("Value"):Connect(refreshCurrencyLabel)
+
+task.defer(function()
+	local ok, err = EconomyClient.SyncState()
+	if not ok then
+		warn("Failed initial economy sync: " .. tostring(err))
+	end
+end)
+
+local oldTrashSlot = mainUI:FindFirstChild("ShopTrashSlot")
+if oldTrashSlot then
+	oldTrashSlot:Destroy()
+end
+
+local shopSellBar = mainUI:FindFirstChild("ShopSellBar")
+if not (shopSellBar and shopSellBar:IsA("Frame")) then
+	if shopSellBar then
+		shopSellBar:Destroy()
+	end
+	shopSellBar = Instance.new("Frame")
+	shopSellBar.Name = "ShopSellBar"
+	shopSellBar.BackgroundColor3 = Color3.fromRGB(23, 30, 26)
+	shopSellBar.BackgroundTransparency = 0.08
+	shopSellBar.BorderSizePixel = 0
+	shopSellBar.AnchorPoint = Vector2.new(1, 0)
+	shopSellBar.Size = UDim2.fromOffset(SHOP_FRAME_WIDTH, 52)
+	shopSellBar.ZIndex = 55
+	shopSellBar.Visible = false
+	shopSellBar.Parent = mainUI
+
+	local barCorner = Instance.new("UICorner")
+	barCorner.CornerRadius = UDim.new(0, 8)
+	barCorner.Parent = shopSellBar
+
+	local barStroke = Instance.new("UIStroke")
+	barStroke.Thickness = 1
+	barStroke.Transparency = 0.2
+	barStroke.Color = Color3.fromRGB(90, 150, 110)
+	barStroke.Parent = shopSellBar
+
+	local barPadding = Instance.new("UIPadding")
+	barPadding.PaddingLeft = UDim.new(0, 8)
+	barPadding.PaddingRight = UDim.new(0, 8)
+	barPadding.PaddingTop = UDim.new(0, 6)
+	barPadding.PaddingBottom = UDim.new(0, 6)
+	barPadding.Parent = shopSellBar
+
+	local row = Instance.new("UIListLayout")
+	row.FillDirection = Enum.FillDirection.Horizontal
+	row.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	row.VerticalAlignment = Enum.VerticalAlignment.Center
+	row.Padding = UDim.new(0, 8)
+	row.Parent = shopSellBar
+
+	local sellModeButton = Instance.new("TextButton")
+	sellModeButton.Name = "SellModeButton"
+	sellModeButton.Size = UDim2.new(0, 102, 1, 0)
+	sellModeButton.BackgroundColor3 = Color3.fromRGB(90, 70, 32)
+	sellModeButton.BorderSizePixel = 0
+	sellModeButton.Text = "Sell: OFF"
+	sellModeButton.TextColor3 = Color3.new(1, 1, 1)
+	sellModeButton.TextSize = 18
+	sellModeButton.Font = Enum.Font.SourceSansBold
+	sellModeButton.Parent = shopSellBar
+
+	local sellModeCorner = Instance.new("UICorner")
+	sellModeCorner.CornerRadius = UDim.new(0, 6)
+	sellModeCorner.Parent = sellModeButton
+
+	local selectionLabel = Instance.new("TextLabel")
+	selectionLabel.Name = "SelectionLabel"
+	selectionLabel.Size = UDim2.new(1, -230, 1, 0)
+	selectionLabel.BackgroundTransparency = 1
+	selectionLabel.TextXAlignment = Enum.TextXAlignment.Left
+	selectionLabel.Text = "Selected: 0 cards (0 coins)"
+	selectionLabel.TextColor3 = Color3.fromRGB(227, 240, 228)
+	selectionLabel.Font = Enum.Font.SourceSansBold
+	selectionLabel.TextSize = 18
+	selectionLabel.Parent = shopSellBar
+
+	local sellButton = Instance.new("TextButton")
+	sellButton.Name = "SellSelectedButton"
+	sellButton.Size = UDim2.new(0, 112, 1, 0)
+	sellButton.BackgroundColor3 = Color3.fromRGB(46, 118, 62)
+	sellButton.BorderSizePixel = 0
+	sellButton.Text = "Sell Selected"
+	sellButton.TextColor3 = Color3.new(1, 1, 1)
+	sellButton.TextSize = 17
+	sellButton.Font = Enum.Font.SourceSansBold
+	sellButton.Parent = shopSellBar
+
+	local sellCorner = Instance.new("UICorner")
+	sellCorner.CornerRadius = UDim.new(0, 6)
+	sellCorner.Parent = sellButton
+end
+
+local function syncShopSellBarLayout()
+	shopSellBar.Size = UDim2.fromOffset(shopFrame.AbsoluteSize.X, 52)
+	shopSellBar.Position = UDim2.new(
+		shopFrame.Position.X.Scale,
+		shopFrame.Position.X.Offset,
+		shopFrame.Position.Y.Scale,
+		shopFrame.Position.Y.Offset + shopFrame.AbsoluteSize.Y + 8
+	)
+end
+
+shopFrame:GetPropertyChangedSignal("Position"):Connect(syncShopSellBarLayout)
+shopFrame:GetPropertyChangedSignal("Size"):Connect(syncShopSellBarLayout)
+syncShopSellBarLayout()
+
+local sellModeButton = shopSellBar:FindFirstChild("SellModeButton")
+local selectionLabel = shopSellBar:FindFirstChild("SelectionLabel")
+local sellSelectedButton = shopSellBar:FindFirstChild("SellSelectedButton")
+
+local function refreshSellControls()
+	local selectedCount = selectedSellCountValue.Value
+	local selectedCoins = selectedSellCoinsValue.Value
+
+	if selectionLabel and selectionLabel:IsA("TextLabel") then
+		selectionLabel.Text = string.format("Selected: %d cards (%d coins)", selectedCount, selectedCoins)
+	end
+
+	if sellModeButton and sellModeButton:IsA("TextButton") then
+		if sellModeEnabledValue.Value then
+			sellModeButton.Text = "Sell: ON"
+			sellModeButton.BackgroundColor3 = Color3.fromRGB(35, 130, 60)
+		else
+			sellModeButton.Text = "Sell: OFF"
+			sellModeButton.BackgroundColor3 = Color3.fromRGB(90, 70, 32)
+		end
+	end
+
+	if sellSelectedButton and sellSelectedButton:IsA("TextButton") then
+		local canSell = sellModeEnabledValue.Value and selectedCount > 0
+		sellSelectedButton.Active = canSell
+		sellSelectedButton.AutoButtonColor = canSell
+		sellSelectedButton.BackgroundColor3 = canSell and Color3.fromRGB(46, 118, 62) or Color3.fromRGB(62, 74, 66)
+	end
+end
+
+if sellModeButton and sellModeButton:IsA("TextButton") then
+	sellModeButton.MouseButton1Click:Connect(function()
+		sellModeEnabledValue.Value = not sellModeEnabledValue.Value
+		refreshSellControls()
+	end)
+end
+
+if sellSelectedButton and sellSelectedButton:IsA("TextButton") then
+	sellSelectedButton.MouseButton1Click:Connect(function()
+		if not sellModeEnabledValue.Value or selectedSellCountValue.Value <= 0 then
+			return
+		end
+		confirmSellSelectionEvent:Fire()
+	end)
+end
+
+selectedSellCountValue:GetPropertyChangedSignal("Value"):Connect(refreshSellControls)
+selectedSellCoinsValue:GetPropertyChangedSignal("Value"):Connect(refreshSellControls)
+sellModeEnabledValue:GetPropertyChangedSignal("Value"):Connect(refreshSellControls)
+refreshSellControls()
+
+local function setUiVisible(isVisible)
+	local itemsFrame = mainUI:FindFirstChild("ItemsFrame")
+	local boosterPacksFrame = mainUI:FindFirstChild("BoosterPacksFrame")
+	local tabBar = mainUI:FindFirstChild("InventoryTabBar")
+
+	combatDeckFrame.Visible = isVisible
+
+	if not isVisible then
+		inventoryFrame.Visible = false
+		if itemsFrame then
+			itemsFrame.Visible = false
+		end
+		if boosterPacksFrame then
+			boosterPacksFrame.Visible = false
+		end
+		if tabBar then
+			tabBar.Visible = false
+		end
+		sortToggleButton.Visible = false
+		sellModeEnabledValue.Value = false
+		return
+	end
+
+	-- Opening defaults to Cards tab content.
+	inventoryFrame.Visible = true
+	if itemsFrame then
+		itemsFrame.Visible = false
+	end
+	if boosterPacksFrame then
+		boosterPacksFrame.Visible = false
+	end
+	if tabBar then
+		tabBar.Visible = true
+	end
+	sortToggleButton.Visible = true
+end
+
+setUiVisible(false)
+shopFrame.Visible = false
+local initialSellBar = mainUI:FindFirstChild("ShopSellBar")
+if initialSellBar then
+	initialSellBar.Visible = false
+end
+
+local function getCardCount(card)
+	if card and card:FindFirstChild("NumberLabel") then
+		return tonumber(card.NumberLabel.Text) or 1
+	end
+	return 1
+end
+
+local function getCardAttack(card)
+	if not card then
+		return 0
+	end
+	local data = CardDatabase.GetCardData(card.Name)
+	if data and type(data.Attack) == "number" then
+		return data.Attack
+	end
+	if card:FindFirstChild("AttackLabel") then
+		return tonumber(card.AttackLabel.Text) or 0
+	end
+	return 0
+end
+
+local rarityRank = {
+	Common = 1,
+	Uncommon = 2,
+	Rare = 3,
+	Epic = 4,
+	Legendary = 5,
+	God = 6,
+	Transcendent = 7,
+}
+
+local sortModes = {
+	{key = "ATK", label = "Sort:ATK"},
+	{key = "COUNT", label = "Sort:CNT"},
+	{key = "RARITY", label = "Sort:RAR"},
+}
+local currentSortModeIndex = 1
+
+local function setSortButtonLabel(text)
+	local label = sortToggleButton:FindFirstChild("Label")
+	if label and label:IsA("TextLabel") then
+		label.Text = text
+	end
+end
+
+local function getCardRarityRank(card)
+	if not card then
+		return 0
+	end
+	local data = CardDatabase.GetCardData(card.Name)
+	local rarity = (data and data.Rarity) or "Common"
+	return rarityRank[rarity] or 1
+end
+
+local function sortInventoryByMode(modeKey)
+	local cards = {}
+	for _, child in ipairs(inventoryFrame:GetChildren()) do
+		if child:IsA("GuiButton") then
+			table.insert(cards, child)
+		end
+	end
+
+	table.sort(cards, function(a, b)
+		if modeKey == "COUNT" then
+			local countA, countB = getCardCount(a), getCardCount(b)
+			if countA ~= countB then
+				return countA > countB
+			end
+			local atkA, atkB = getCardAttack(a), getCardAttack(b)
+			if atkA ~= atkB then
+				return atkA > atkB
+			end
+		elseif modeKey == "RARITY" then
+			local rarityA, rarityB = getCardRarityRank(a), getCardRarityRank(b)
+			if rarityA ~= rarityB then
+				return rarityA > rarityB
+			end
+			local atkA, atkB = getCardAttack(a), getCardAttack(b)
+			if atkA ~= atkB then
+				return atkA > atkB
+			end
+		else
+			local atkA, atkB = getCardAttack(a), getCardAttack(b)
+			if atkA ~= atkB then
+				return atkA > atkB
+			end
+			local countA, countB = getCardCount(a), getCardCount(b)
+			if countA ~= countB then
+				return countA > countB
+			end
+		end
+		return a.Name < b.Name
+	end)
+
+	for index, card in ipairs(cards) do
+		card.LayoutOrder = index
+	end
+end
+
+setSortButtonLabel(sortModes[currentSortModeIndex].label)
+
+inventoryToggleButton.MouseButton1Click:Connect(function()
+	local itemsFrame = mainUI:FindFirstChild("ItemsFrame")
+	local boosterPacksFrame = mainUI:FindFirstChild("BoosterPacksFrame")
+
+	local currentlyOpen =
+		inventoryFrame.Visible or
+		combatDeckFrame.Visible or
+		(itemsFrame and itemsFrame.Visible) or
+		(boosterPacksFrame and boosterPacksFrame.Visible)
+
+	local newState = not currentlyOpen
+	setUiVisible(newState)
+
+	-- If we just opened the UI, ensure the layout is actually inside the frames
+	if newState then
+		for _, frame in pairs({inventoryFrame, combatDeckFrame}) do
+			local layout = frame:FindFirstChildOfClass("UIListLayout") or frame:FindFirstChildOfClass("UIGridLayout")
+			-- Ensure the layout is inside the frame if it was previously removed
+			if layout and layout.Parent == nil then
+				layout.Parent = frame
+			end
+		end
+	end
+end)
+
+sortToggleButton.MouseButton1Click:Connect(function()
+	currentSortModeIndex += 1
+	if currentSortModeIndex > #sortModes then
+		currentSortModeIndex = 1
+	end
+	local mode = sortModes[currentSortModeIndex]
+	setSortButtonLabel(mode.label)
+	sortInventoryByMode(mode.key)
+end)
+
+shopToggleButton.MouseButton1Click:Connect(function()
+	shopFrame.Visible = not shopFrame.Visible
+	local shopSellBarFrame = mainUI:FindFirstChild("ShopSellBar")
+	if shopSellBarFrame then
+		shopSellBarFrame.Visible = shopFrame.Visible
+	end
+	if shopFrame.Visible then
+		task.defer(function()
+			local ok, err = EconomyClient.SyncState()
+			if not ok then
+				warn("Failed shop economy sync: " .. tostring(err))
+			end
+		end)
+	end
+	if not shopFrame.Visible then
+		sellModeEnabledValue.Value = false
+		hideShopCardPreview()
+	end
+end)

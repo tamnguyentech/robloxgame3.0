@@ -1,0 +1,863 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local BattleProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BattleProtocol"))
+local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local BattleBalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BattleBalanceConfig"))
+local CardAbilityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardAbilityConfig"))
+
+local FIRST_ATTACK_STAGGER_SECONDS = 2
+local BOSS_COUNTER_ATTACK_INTERVAL_SECONDS = 4
+local DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS = 5
+local PVE_ABILITY_TICK_INTERVAL_SECONDS = math.max(0.02, tonumber(BattleBalanceConfig.Pve.AbilityTickIntervalSeconds) or 0.08)
+local DEFAULT_ABILITY_FIRST_CAST_DELAY_SECONDS = math.max(0, tonumber(BattleBalanceConfig.Pve.AbilityFirstCastDelaySeconds) or 2.0)
+local MIN_ABILITY_COOLDOWN_SECONDS = math.max(1, tonumber(BattleBalanceConfig.Defaults.AbilityMinCooldownSeconds) or 1)
+
+local NPC_REGISTRY = {
+	Baloney = {
+		NpcId = "baloney_dummy",
+		DisplayName = "Baloney",
+		WorkspaceName = "Baloney",
+		InteractionRange = 24,
+		PromptText = "Battle",
+		ObjectText = "Baloney",
+		HoldDuration = 0.12,
+		BossCardId = "BaloneyBossCard",
+		BossCardName = "Baloney, The Test Tyrant",
+		BossMaxHealth = 1000000000,
+		BossAttack = 4000000,
+	},
+}
+
+local npcById = {}
+for _, record in pairs(NPC_REGISTRY) do
+	npcById[record.NpcId] = record
+end
+
+local activeSessionByPlayer = {}
+local lastRequestByPlayer = {}
+local promptConnections = {}
+
+local function scrubCharacterPrompts(character)
+	if not character then
+		return
+	end
+	for _, descendant in ipairs(character:GetDescendants()) do
+		if descendant:IsA("ProximityPrompt") then
+			local conn = promptConnections[descendant]
+			if conn then
+				conn:Disconnect()
+				promptConnections[descendant] = nil
+			end
+			descendant:Destroy()
+		end
+	end
+end
+
+local function attachCharacterPromptScrubber(player)
+	player.CharacterAdded:Connect(function(character)
+		task.defer(function()
+			scrubCharacterPrompts(character)
+			local descConn
+			descConn = character.DescendantAdded:Connect(function(descendant)
+				if descendant:IsA("ProximityPrompt") then
+					local conn = promptConnections[descendant]
+					if conn then
+						conn:Disconnect()
+						promptConnections[descendant] = nil
+					end
+					descendant:Destroy()
+				end
+			end)
+			character.AncestryChanged:Connect(function(_, parent)
+				if parent == nil and descConn then
+					descConn:Disconnect()
+					descConn = nil
+				end
+			end)
+		end)
+	end)
+
+	if player.Character then
+		task.defer(function()
+			scrubCharacterPrompts(player.Character)
+		end)
+	end
+end
+
+local function ensureRemoteFolder()
+	local folder = ReplicatedStorage:FindFirstChild(BattleProtocol.Remotes.FolderName)
+	if folder and folder:IsA("Folder") then
+		return folder
+	end
+	if folder then
+		folder:Destroy()
+	end
+	folder = Instance.new("Folder")
+	folder.Name = BattleProtocol.Remotes.FolderName
+	folder.Parent = ReplicatedStorage
+	return folder
+end
+
+local function ensureRemoteEvent(folder, remoteName)
+	local remote = folder:FindFirstChild(remoteName)
+	if remote and remote:IsA("RemoteEvent") then
+		return remote
+	end
+	if remote then
+		remote:Destroy()
+	end
+	remote = Instance.new("RemoteEvent")
+	remote.Name = remoteName
+	remote.Parent = folder
+	return remote
+end
+
+local remotesFolder = ensureRemoteFolder()
+local requestBattleEvent = ensureRemoteEvent(remotesFolder, BattleProtocol.Remotes.RequestBattle)
+local battleInviteEvent = ensureRemoteEvent(remotesFolder, BattleProtocol.Remotes.BattleInvite)
+local battleStateEvent = ensureRemoteEvent(remotesFolder, BattleProtocol.Remotes.BattleState)
+local battleActionEvent = ensureRemoteEvent(remotesFolder, BattleProtocol.Remotes.BattleAction)
+
+local function getWorldPosition(instance)
+	if not instance then
+		return nil
+	end
+	if instance:IsA("BasePart") then
+		return instance.Position
+	end
+	if instance:IsA("Model") then
+		return instance:GetPivot().Position
+	end
+	return nil
+end
+
+local function findPromptPart(instance)
+	if not instance then
+		return nil
+	end
+	if instance:IsA("BasePart") then
+		return instance
+	end
+	if instance:IsA("Model") then
+		if instance.PrimaryPart then
+			return instance.PrimaryPart
+		end
+		local humanoidRoot = instance:FindFirstChild("HumanoidRootPart")
+		if humanoidRoot and humanoidRoot:IsA("BasePart") then
+			return humanoidRoot
+		end
+		return instance:FindFirstChildWhichIsA("BasePart", true)
+	end
+	return nil
+end
+
+local function resolveNpcInstance(record)
+	if not record then
+		return nil
+	end
+
+	-- Prefer a direct top-level workspace object when available.
+	local direct = Workspace:FindFirstChild(record.WorkspaceName)
+	if direct then
+		return direct
+	end
+
+	-- Fall back to descendants, but never bind prompts inside player characters.
+	for _, descendant in ipairs(Workspace:GetDescendants()) do
+		if descendant.Name == record.WorkspaceName and (descendant:IsA("Model") or descendant:IsA("BasePart")) then
+			local isInCharacter = false
+			for _, player in ipairs(Players:GetPlayers()) do
+				local character = player.Character
+				if character and descendant:IsDescendantOf(character) then
+					isInCharacter = true
+					break
+				end
+			end
+			if not isInCharacter then
+				return descendant
+			end
+		end
+	end
+
+	return nil
+end
+
+local function cleanupStalePrompts()
+	for _, descendant in ipairs(Workspace:GetDescendants()) do
+		if descendant:IsA("ProximityPrompt") then
+			local promptLooksNpcBattle = descendant.Name == "NpcBattlePrompt"
+				or descendant.ObjectText == "Baloney"
+				or descendant.ActionText == "Battle"
+				or descendant.ActionText == "Challenge"
+
+			if not promptLooksNpcBattle then
+				continue
+			end
+
+			local shouldKeep = false
+			for _, record in pairs(NPC_REGISTRY) do
+				local npcInstance = resolveNpcInstance(record)
+				if npcInstance and descendant:IsDescendantOf(npcInstance) then
+					shouldKeep = true
+					break
+				end
+			end
+
+			if shouldKeep then
+				for _, p in ipairs(Players:GetPlayers()) do
+					local character = p.Character
+					if character and descendant:IsDescendantOf(character) then
+						shouldKeep = false
+						break
+					end
+				end
+			end
+
+			if not shouldKeep then
+				local conn = promptConnections[descendant]
+				if conn then
+					conn:Disconnect()
+					promptConnections[descendant] = nil
+				end
+				descendant:Destroy()
+			end
+		end
+	end
+end
+
+local function sendState(player, payload)
+	if not player then
+		return
+	end
+	local out = payload or {}
+	out.protocolVersion = BattleProtocol.Version
+	battleStateEvent:FireClient(player, out)
+end
+
+local function finishSession(player, reason)
+	local session = activeSessionByPlayer[player]
+	if not session then
+		return
+	end
+	session.isClosed = true
+	activeSessionByPlayer[player] = nil
+	sendState(player, {
+		eventType = BattleProtocol.EventType.SessionEnded,
+		sessionId = session.sessionId,
+		npcId = session.npcId,
+		phase = BattleProtocol.SessionPhase.Ended,
+		reason = reason or "Completed",
+	})
+end
+
+local function sanitizeDeckSnapshot(rawDeck)
+	if type(rawDeck) ~= "table" then
+		return {}
+	end
+
+	local out = {}
+	for _, rawEntry in ipairs(rawDeck) do
+		if #out >= 5 then
+			break
+		end
+
+		local cardRef = rawEntry
+		local slotIndex = nil
+		if type(rawEntry) == "table" then
+			cardRef = rawEntry.cardId
+			slotIndex = tonumber(rawEntry.slotIndex)
+		end
+
+		if type(cardRef) == "string" and cardRef ~= "" then
+			local resolved = CardDatabase.ResolveCardIdStrict(cardRef)
+			if resolved then
+				table.insert(out, {
+					cardId = resolved,
+					slotIndex = (slotIndex and math.floor(slotIndex)) or (#out + 1),
+				})
+			end
+		end
+	end
+
+	return out
+end
+
+local function buildPlayerCardStatePayload(session)
+	local payload = {}
+	local now = os.clock()
+	for _, state in ipairs(session.playerCardStates or {}) do
+		local attack = math.max(1, math.floor(tonumber(state.baseAttack or state.attack) or 1))
+		if (tonumber(state.damageBoostUntil) or 0) > now then
+			local boost = math.max(0, tonumber(state.damageBoostMagnitude) or 0)
+			attack = math.max(1, math.floor(attack * (1 + boost)))
+		end
+		table.insert(payload, {
+			slotIndex = state.slotIndex,
+			cardId = state.cardId,
+			cardName = state.cardName,
+			attack = attack,
+			maxHealth = state.maxHealth,
+			health = state.health,
+			isAlive = state.health > 0,
+		})
+	end
+	return payload
+end
+
+local function getAliveCardStates(session)
+	local out = {}
+	for _, state in ipairs(session.playerCardStates or {}) do
+		if state.health > 0 then
+			table.insert(out, state)
+		end
+	end
+	return out
+end
+
+local function getCardStateBySlot(session, slotIndex)
+	for _, state in ipairs(session.playerCardStates or {}) do
+		if state.slotIndex == slotIndex then
+			return state
+		end
+	end
+	return nil
+end
+
+local function getEffectiveAttack(cardState, now)
+	local attack = math.max(1, math.floor(tonumber(cardState and cardState.baseAttack) or 1))
+	if cardState and (tonumber(cardState.damageBoostUntil) or 0) > now then
+		local boost = math.max(0, tonumber(cardState.damageBoostMagnitude) or 0)
+		attack = math.max(1, math.floor(attack * (1 + boost)))
+	end
+	return attack
+end
+
+local function getEffectiveAttackInterval(cardState, now)
+	local interval = math.max(0.5, tonumber(cardState and cardState.baseAttackIntervalSeconds) or DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS)
+	if cardState and (tonumber(cardState.speedBoostUntil) or 0) > now then
+		local boost = math.max(0, tonumber(cardState.speedBoostMagnitude) or 0)
+		interval = math.max(0.25, interval / (1 + boost))
+	end
+	return interval
+end
+
+local function applyAutoAbility(session, casterState, now, abilityEvents)
+	if not casterState or casterState.health <= 0 then
+		return false
+	end
+	local abilityId = casterState.abilityId
+	local abilityDef = CardAbilityConfig.GetAbility(abilityId)
+	if not abilityDef then
+		return false
+	end
+
+	local aliveAllies = getAliveCardStates(session)
+	if #aliveAllies == 0 then
+		return false
+	end
+
+	local magnitude = math.max(0, tonumber(abilityDef.Magnitude) or 0)
+	local durationSeconds = math.max(0, tonumber(abilityDef.DurationSeconds) or 0)
+	local targetSlotIndices = {}
+
+	if abilityDef.EffectType == "TeamAttackSpeedBoost" then
+		for _, ally in ipairs(aliveAllies) do
+			ally.speedBoostMagnitude = math.max(tonumber(ally.speedBoostMagnitude) or 0, magnitude)
+			ally.speedBoostUntil = math.max(tonumber(ally.speedBoostUntil) or 0, now + durationSeconds)
+			table.insert(targetSlotIndices, ally.slotIndex)
+		end
+	elseif abilityDef.EffectType == "TeamAttackDamageBoost" then
+		for _, ally in ipairs(aliveAllies) do
+			ally.damageBoostMagnitude = math.max(tonumber(ally.damageBoostMagnitude) or 0, magnitude)
+			ally.damageBoostUntil = math.max(tonumber(ally.damageBoostUntil) or 0, now + durationSeconds)
+			table.insert(targetSlotIndices, ally.slotIndex)
+		end
+	elseif abilityDef.EffectType == "HealLowestAlly" then
+		local lowest = nil
+		local lowestRatio = 2
+		for _, ally in ipairs(aliveAllies) do
+			local ratio = (tonumber(ally.health) or 0) / math.max(1, tonumber(ally.maxHealth) or 1)
+			if ratio < lowestRatio then
+				lowestRatio = ratio
+				lowest = ally
+			end
+		end
+		if lowest then
+			local healAmount = math.max(1, math.floor(math.max(1, lowest.maxHealth) * magnitude))
+			lowest.health = math.min(lowest.maxHealth, lowest.health + healAmount)
+			table.insert(targetSlotIndices, lowest.slotIndex)
+		end
+	else
+		return false
+	end
+
+	table.insert(abilityEvents, {
+		casterSlotIndex = casterState.slotIndex,
+		casterCardId = casterState.cardId,
+		abilityId = abilityId,
+		effectType = abilityDef.EffectType,
+		targetSlotIndices = targetSlotIndices,
+		magnitude = magnitude,
+		durationSeconds = durationSeconds,
+		timestamp = now,
+	})
+
+	return true
+end
+
+local function pruneDeadAttackers(session)
+	if type(session.attackState) ~= "table" then
+		return
+	end
+
+	local aliveBySlot = {}
+	for _, state in ipairs(session.playerCardStates or {}) do
+		if state.health > 0 then
+			aliveBySlot[state.slotIndex] = true
+		end
+	end
+
+	for i = #session.attackState, 1, -1 do
+		local attacker = session.attackState[i]
+		if not aliveBySlot[attacker.slotIndex] then
+			table.remove(session.attackState, i)
+		end
+	end
+end
+
+local function shuffleInPlace(list)
+	for i = #list, 2, -1 do
+		local j = math.random(1, i)
+		list[i], list[j] = list[j], list[i]
+	end
+end
+
+local function sendBossState(player, session, payload)
+	local out = payload or {}
+	out.eventType = BattleProtocol.EventType.BossState
+	out.sessionId = session.sessionId
+	out.npcId = session.npcId
+	out.phase = session.phase
+	out.bossCardId = session.bossCardId
+	out.bossCardName = session.bossCardName
+	out.bossMaxHealth = session.bossMaxHealth
+	out.bossHealth = session.bossHealth
+	out.bossAttack = session.bossAttack
+	out.nextAttackInSeconds = DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS
+	out.playerCardStates = buildPlayerCardStatePayload(session)
+	sendState(player, out)
+end
+
+local function runBossAttackLoop(player, session)
+	task.spawn(function()
+		while true do
+			local current = activeSessionByPlayer[player]
+			if not current or current ~= session or session.isClosed then
+				break
+			end
+
+			if session.phase ~= BattleProtocol.SessionPhase.InProgress then
+				break
+			end
+
+			if session.bossHealth <= 0 then
+				finishSession(player, "BossDefeated")
+				break
+			end
+
+			if #getAliveCardStates(session) == 0 then
+				finishSession(player, "PlayerDefeated")
+				break
+			end
+
+			local now = os.clock()
+			local dealtAny = false
+			local stateSentThisTick = false
+			local abilityEvents = {}
+			for _, attacker in ipairs(session.attackState or {}) do
+				local cardState = getCardStateBySlot(session, attacker.slotIndex)
+				if not cardState or cardState.health <= 0 then
+					continue
+				end
+
+				if cardState.abilityId ~= "" and attacker.nextAbilityAt and attacker.nextAbilityAt <= now then
+					if applyAutoAbility(session, cardState, now, abilityEvents) then
+						dealtAny = true
+					end
+					attacker.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(cardState.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
+				end
+
+				if attacker.nextAttackAt <= now then
+					local dealtDamage = getEffectiveAttack(cardState, now)
+					session.bossHealth = math.max(0, session.bossHealth - dealtDamage)
+					attacker.nextAttackAt = now + getEffectiveAttackInterval(cardState, now)
+					dealtAny = true
+
+					sendBossState(player, session, {
+						attackerCardId = attacker.cardId,
+						attackerSlotIndex = attacker.slotIndex,
+						dealtDamage = dealtDamage,
+						abilityEvents = abilityEvents,
+					})
+					stateSentThisTick = true
+
+					if session.bossHealth <= 0 then
+						finishSession(player, "BossDefeated")
+						break
+					end
+				end
+			end
+
+			if session.nextBossAttackAt <= now then
+				local alive = getAliveCardStates(session)
+				if #alive > 0 then
+					local target = alive[math.random(1, #alive)]
+					local dealtDamage = session.bossAttack
+					target.health = math.max(0, target.health - dealtDamage)
+					pruneDeadAttackers(session)
+					session.nextBossAttackAt = now + BOSS_COUNTER_ATTACK_INTERVAL_SECONDS
+					dealtAny = true
+
+					sendBossState(player, session, {
+						bossAttackDealtDamage = dealtDamage,
+						bossAttackTargetSlotIndex = target.slotIndex,
+						bossAttackTargetCardId = target.cardId,
+						abilityEvents = abilityEvents,
+					})
+					stateSentThisTick = true
+				end
+			end
+
+			if #abilityEvents > 0 and not stateSentThisTick then
+				sendBossState(player, session, {
+					reason = "AbilityTriggered",
+					abilityEvents = abilityEvents,
+					dealtDamage = 0,
+				})
+			end
+
+			if session.bossHealth <= 0 then
+				break
+			end
+
+			if #getAliveCardStates(session) == 0 then
+				finishSession(player, "PlayerDefeated")
+				break
+			end
+
+			if not dealtAny then
+				task.wait(PVE_ABILITY_TICK_INTERVAL_SECONDS)
+			else
+				task.wait(0.02)
+			end
+		end
+	end)
+end
+
+local function startSession(player, record)
+	local sessionId = BattleProtocol.MakeSessionId(player.UserId, record.NpcId)
+	local session = {
+		sessionId = sessionId,
+		npcId = record.NpcId,
+		createdAt = os.clock(),
+		phase = BattleProtocol.SessionPhase.Lobby,
+		bossCardId = record.BossCardId,
+		bossCardName = record.BossCardName,
+		bossMaxHealth = math.max(1, math.floor(record.BossMaxHealth or 1000000)),
+		bossHealth = math.max(1, math.floor(record.BossMaxHealth or 1000000)),
+		bossAttack = math.max(1, math.floor(record.BossAttack or 100)),
+		playerDeck = {},
+		playerCardStates = {},
+		nextBossAttackAt = os.clock() + 1.5,
+		isClosed = false,
+	}
+	activeSessionByPlayer[player] = session
+
+	sendState(player, {
+		eventType = BattleProtocol.EventType.SessionStarted,
+		sessionId = sessionId,
+		npcId = record.NpcId,
+		npcName = record.DisplayName,
+		bossCardId = session.bossCardId,
+		bossCardName = session.bossCardName,
+		bossMaxHealth = session.bossMaxHealth,
+		bossHealth = session.bossHealth,
+		bossAttack = session.bossAttack,
+		phase = session.phase,
+		rules = {
+			maxDeckSize = 5,
+			attackIntervalSeconds = DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS,
+			bossAttackIntervalSeconds = BOSS_COUNTER_ATTACK_INTERVAL_SECONDS,
+			firstAttackStaggerSeconds = FIRST_ATTACK_STAGGER_SECONDS,
+			requiresDeckSnapshot = true,
+		},
+	})
+end
+
+local function tryStartBattleForRecord(player, record, throttleWindow)
+	if not (player and player:IsA("Player")) then
+		return false
+	end
+	if not record then
+		sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "NpcNotRegistered"})
+		return false
+	end
+
+	local now = os.clock()
+	local throttle = tonumber(throttleWindow) or 0
+	if throttle > 0 then
+		local last = lastRequestByPlayer[player] or 0
+		if (now - last) < throttle then
+			sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "RequestThrottled"})
+			return false
+		end
+	end
+	lastRequestByPlayer[player] = now
+
+	if activeSessionByPlayer[player] then
+		sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "AlreadyInSession"})
+		return false
+	end
+
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	local npcInstance = resolveNpcInstance(record)
+	local npcPosition = getWorldPosition(npcInstance)
+	if not (hrp and npcPosition) then
+		sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "NpcUnavailable", npcId = record.NpcId})
+		return false
+	end
+
+	local distance = (hrp.Position - npcPosition).Magnitude
+	if distance > record.InteractionRange + 3 then
+		sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "TooFar", npcId = record.NpcId})
+		return false
+	end
+
+	startSession(player, record)
+	return true
+end
+
+local function onPromptTriggered(record, player)
+	if not (player and player:IsA("Player")) then
+		return
+	end
+	battleInviteEvent:FireClient(player, {
+		npcId = record.NpcId,
+		npcName = record.DisplayName,
+		interactionType = "ProximityPrompt",
+		protocolVersion = BattleProtocol.Version,
+	})
+	tryStartBattleForRecord(player, record, 0.2)
+end
+
+local function bindPrompt(record)
+	local instance = resolveNpcInstance(record)
+	local promptPart = findPromptPart(instance)
+	if not promptPart then
+		return false
+	end
+
+	local prompt = promptPart:FindFirstChild("NpcBattlePrompt")
+	if not (prompt and prompt:IsA("ProximityPrompt")) then
+		if prompt then
+			prompt:Destroy()
+		end
+		prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "NpcBattlePrompt"
+		prompt.RequiresLineOfSight = false
+		prompt.MaxActivationDistance = record.InteractionRange
+		prompt.HoldDuration = record.HoldDuration
+		prompt.Parent = promptPart
+	end
+
+	prompt.ActionText = record.PromptText
+	prompt.ObjectText = record.ObjectText
+
+	if not promptConnections[prompt] then
+		promptConnections[prompt] = prompt.Triggered:Connect(function(player)
+			onPromptTriggered(record, player)
+		end)
+	end
+
+	return true
+end
+
+local function bindAllPrompts()
+	cleanupStalePrompts()
+	for _, record in pairs(NPC_REGISTRY) do
+		bindPrompt(record)
+	end
+end
+
+bindAllPrompts()
+Workspace.DescendantAdded:Connect(function(descendant)
+	if descendant.Name == "Baloney" then
+		task.defer(bindAllPrompts)
+	end
+end)
+
+for _, p in ipairs(Players:GetPlayers()) do
+	attachCharacterPromptScrubber(p)
+	p.CharacterAdded:Connect(function(character)
+		task.defer(function()
+			scrubCharacterPrompts(character)
+			bindAllPrompts()
+		end)
+	end)
+end
+
+Players.PlayerAdded:Connect(function(p)
+	attachCharacterPromptScrubber(p)
+	p.CharacterAdded:Connect(function(character)
+		task.defer(function()
+			scrubCharacterPrompts(character)
+			bindAllPrompts()
+		end)
+	end)
+end)
+
+requestBattleEvent.OnServerEvent:Connect(function(player, payload)
+	local npcId = payload and payload.npcId
+	if not BattleProtocol.IsValidNpcId(npcId) then
+		sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "InvalidNpcId"})
+		return
+	end
+
+	local record = npcById[npcId]
+	if not record then
+		sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "NpcNotRegistered", npcId = npcId})
+		return
+	end
+	tryStartBattleForRecord(player, record, 0.4)
+end)
+
+battleActionEvent.OnServerEvent:Connect(function(player, payload)
+	local session = activeSessionByPlayer[player]
+	if not session then
+		sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "NoActiveSession"})
+		return
+	end
+
+	if type(payload) ~= "table" then
+		sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "InvalidActionPayload"})
+		return
+	end
+
+	if payload.sessionId ~= nil and payload.sessionId ~= session.sessionId then
+		sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "SessionMismatch"})
+		return
+	end
+
+	local actionType = payload and payload.actionType
+	if type(actionType) ~= "string" or actionType == "" then
+		sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "InvalidAction"})
+		return
+	end
+
+	if actionType == BattleProtocol.ActionType.SubmitDeckSnapshot then
+		if session.phase == BattleProtocol.SessionPhase.Ended then
+			sendState(player, {eventType = BattleProtocol.EventType.Error, reason = "SessionAlreadyEnded"})
+			return
+		end
+
+		local deck = sanitizeDeckSnapshot(payload.deck)
+		session.playerDeck = deck
+		session.playerCardStates = {}
+		for _, entry in ipairs(deck) do
+			local cardData = CardDatabase.GetCardData(entry.cardId)
+			local maxHealth = math.max(1, math.floor(tonumber(cardData and cardData.Health) or 100))
+			table.insert(session.playerCardStates, {
+				slotIndex = entry.slotIndex,
+				cardId = entry.cardId,
+				cardName = (cardData and cardData.Name) or entry.cardId,
+				maxHealth = maxHealth,
+				health = maxHealth,
+			})
+		end
+
+		session.attackState = {}
+		if #deck > 0 then
+			local firstWave = table.clone(deck)
+			shuffleInPlace(firstWave)
+			local now = os.clock()
+			for i, entry in ipairs(firstWave) do
+				local waveCardData = CardDatabase.GetCardData(entry.cardId)
+				local attackIntervalSeconds = math.max(0.5, tonumber(waveCardData and waveCardData.AttackIntervalSeconds) or DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS)
+				local abilityId = (type(waveCardData and waveCardData.AbilityId) == "string") and waveCardData.AbilityId or ""
+				local abilityDef = CardAbilityConfig.GetAbility(abilityId)
+				local abilityCooldownSeconds = math.max(
+					MIN_ABILITY_COOLDOWN_SECONDS,
+					tonumber(waveCardData and waveCardData.AbilityCooldownSeconds) or tonumber(abilityDef and abilityDef.DefaultCooldownSeconds) or 10
+				)
+				table.insert(session.attackState, {
+					cardId = entry.cardId,
+					slotIndex = entry.slotIndex,
+					attackIntervalSeconds = attackIntervalSeconds,
+					nextAttackAt = now + ((i - 1) * FIRST_ATTACK_STAGGER_SECONDS),
+					nextAbilityAt = now + DEFAULT_ABILITY_FIRST_CAST_DELAY_SECONDS,
+				})
+
+				for _, state in ipairs(session.playerCardStates) do
+					if state.slotIndex == entry.slotIndex then
+						state.baseAttack = math.max(1, math.floor(tonumber(waveCardData and waveCardData.Attack) or 1))
+						state.baseAttackIntervalSeconds = attackIntervalSeconds
+						state.abilityId = abilityId
+						state.abilityCooldownSeconds = abilityCooldownSeconds
+						state.speedBoostMagnitude = 0
+						state.speedBoostUntil = 0
+						state.damageBoostMagnitude = 0
+						state.damageBoostUntil = 0
+						break
+					end
+				end
+			end
+		end
+
+		if session.phase == BattleProtocol.SessionPhase.Lobby then
+			session.phase = BattleProtocol.SessionPhase.InProgress
+			session.nextBossAttackAt = os.clock() + 1.5
+		end
+
+		sendState(player, {
+			eventType = BattleProtocol.EventType.ActionAccepted,
+			sessionId = session.sessionId,
+			npcId = session.npcId,
+			actionType = actionType,
+			phase = session.phase,
+			deckSize = #deck,
+		})
+
+		sendBossState(player, session, {
+			reason = (#deck > 0) and "BattleStarted" or "AwaitingCombatDeck",
+			dealtDamage = 0,
+		})
+
+		if #deck > 0 and not session.loopStarted then
+			session.loopStarted = true
+			runBossAttackLoop(player, session)
+		end
+		return
+	end
+
+	if actionType == BattleProtocol.ActionType.Surrender then
+		finishSession(player, "PlayerSurrendered")
+		return
+	end
+
+	sendState(player, {
+		eventType = BattleProtocol.EventType.Error,
+		reason = "UnsupportedAction",
+		sessionId = session.sessionId,
+		npcId = session.npcId,
+		actionType = actionType,
+		phase = session.phase,
+	})
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	finishSession(player, "PlayerLeft")
+	lastRequestByPlayer[player] = nil
+end)

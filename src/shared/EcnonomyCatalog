@@ -1,0 +1,42 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local BoosterBalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BoosterBalanceConfig"))
+
+local EconomyCatalog = {}
+
+EconomyCatalog.Items = {
+	AutoRoll2x20s = {
+		Price = 25,
+		GrantAmount = 1,
+	},
+}
+
+EconomyCatalog.DirectCards = {
+	BeliodusX = {
+		Price = 2000,
+		GrantAmount = 1,
+	},
+	AstraEclipse = {
+		Price = 10000,
+		GrantAmount = 1,
+	},
+}
+
+function EconomyCatalog.GetItemOffer(itemId)
+	if type(itemId) ~= "string" then
+		return nil
+	end
+	return EconomyCatalog.Items[itemId]
+end
+
+function EconomyCatalog.GetDirectCardOffer(cardId)
+	if type(cardId) ~= "string" then
+		return nil
+	end
+	return EconomyCatalog.DirectCards[cardId]
+end
+
+function EconomyCatalog.GetPack(packId)
+	return BoosterBalanceConfig.GetPackById(packId)
+end
+
+return EconomyCatalog

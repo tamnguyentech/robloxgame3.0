@@ -1,0 +1,41 @@
+local RarityConfig = {}
+
+RarityConfig.PreviewColors = {
+	Common = Color3.fromRGB(185, 185, 185),
+	Uncommon = Color3.fromRGB(85, 220, 110),
+	Rare = Color3.fromRGB(80, 150, 255),
+	Epic = Color3.fromRGB(210, 95, 255),
+	Legendary = Color3.fromRGB(255, 185, 55),
+	God = Color3.fromRGB(255, 70, 70),
+	Transcendent = Color3.fromRGB(120, 245, 255),
+}
+
+RarityConfig.BorderPulseScale = {
+	Common = 1,
+	Uncommon = 1.08,
+	Rare = 1.18,
+	Epic = 1.3,
+	Legendary = 1.45,
+	God = 1.62,
+	Transcendent = 1.85,
+}
+
+function RarityConfig.GetPreviewRarityColor(rarity)
+	return RarityConfig.PreviewColors[rarity] or RarityConfig.PreviewColors.Common
+end
+
+function RarityConfig.GetBorderPulseScale(rarity)
+	return RarityConfig.BorderPulseScale[rarity] or RarityConfig.BorderPulseScale.Common
+end
+
+function RarityConfig.BuildBorderGradient(baseColor)
+	local bright = baseColor:Lerp(Color3.new(1, 1, 1), 0.35)
+	local dark = baseColor:Lerp(Color3.new(0, 0, 0), 0.25)
+	return ColorSequence.new({
+		ColorSequenceKeypoint.new(0, dark),
+		ColorSequenceKeypoint.new(0.45, bright),
+		ColorSequenceKeypoint.new(1, dark),
+	})
+end
+
+return RarityConfig

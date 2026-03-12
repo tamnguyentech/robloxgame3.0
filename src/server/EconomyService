@@ -1,0 +1,315 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+
+local EconomyProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("EconomyProtocol"))
+local EconomyCatalog = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("EconomyCatalog"))
+local BoosterBalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BoosterBalanceConfig"))
+local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local AutoRollRuntime = require(script.Parent:WaitForChild("AutoRollRuntime"))
+
+local saveManagerBridge = ServerStorage:WaitForChild("SaveManagerBridge")
+
+local RARITY_ORDER = {"Common", "Uncommon", "Rare", "Epic", "Legendary"}
+
+local function ensureRemoteFolder()
+	local folder = ReplicatedStorage:FindFirstChild(EconomyProtocol.Remotes.FolderName)
+	if folder and folder:IsA("Folder") then
+		return folder
+	end
+	if folder then
+		folder:Destroy()
+	end
+	folder = Instance.new("Folder")
+	folder.Name = EconomyProtocol.Remotes.FolderName
+	folder.Parent = ReplicatedStorage
+	return folder
+end
+
+local function ensureRemoteFunction(folder, remoteName)
+	local remote = folder:FindFirstChild(remoteName)
+	if remote and remote:IsA("RemoteFunction") then
+		return remote
+	end
+	if remote then
+		remote:Destroy()
+	end
+	remote = Instance.new("RemoteFunction")
+	remote.Name = remoteName
+	remote.Parent = folder
+	return remote
+end
+
+local remotesFolder = ensureRemoteFolder()
+local requestRemote = ensureRemoteFunction(remotesFolder, EconomyProtocol.Remotes.Request)
+
+local function bridgeCall(action, payload)
+	local ok, a, b = pcall(function()
+		return saveManagerBridge:Invoke(action, payload)
+	end)
+	if not ok then
+		return false, tostring(a)
+	end
+	return a, b
+end
+
+local function clampWholeNumber(value, minValue, maxValue, defaultValue)
+	local n = math.floor(tonumber(value) or defaultValue or minValue)
+	return math.max(minValue, math.min(maxValue, n))
+end
+
+local function pickRarityFromRates(rates)
+	local totalWeight = 0
+	for _, rarity in ipairs(RARITY_ORDER) do
+		totalWeight += math.max(0, tonumber(rates and rates[rarity]) or 0)
+	end
+
+	if totalWeight <= 0 then
+		return "Common"
+	end
+
+	local roll = math.random() * totalWeight
+	local running = 0
+	for _, rarity in ipairs(RARITY_ORDER) do
+		running += math.max(0, tonumber(rates and rates[rarity]) or 0)
+		if roll <= running then
+			return rarity
+		end
+	end
+
+	return "Common"
+end
+
+local function pickCardForRarity(rarity)
+	local function isRollEligible(cardId)
+		local data = CardDatabase.GetCardData(cardId)
+		return not (data and (data.Rarity == "God" or data.Rarity == "Transcendent"))
+	end
+
+	local pool = {}
+	for _, cardRef in ipairs(CardDatabase.GetAllCardIds()) do
+		local resolvedId = CardDatabase.ResolveCardId(cardRef) or cardRef
+		local data = CardDatabase.GetCardData(resolvedId)
+		if data and data.Rarity == rarity and isRollEligible(resolvedId) then
+			table.insert(pool, resolvedId)
+		end
+	end
+
+	if #pool == 0 then
+		for _, cardRef in ipairs(CardDatabase.GetAllCardIds()) do
+			local resolvedId = CardDatabase.ResolveCardId(cardRef) or cardRef
+			if isRollEligible(resolvedId) then
+				table.insert(pool, resolvedId)
+			end
+		end
+	end
+
+	if #pool == 0 then
+		return nil
+	end
+	return pool[math.random(1, #pool)]
+end
+
+local function rollPackRewards(pack, openCount)
+	local rewards = {}
+	local rates = pack.RarityRates or BoosterBalanceConfig.DefaultRarityRates
+	local cardsPerOpen = math.max(1, math.floor(pack.CardsPerOpen or BoosterBalanceConfig.DefaultCardsPerOpen))
+
+	for _ = 1, openCount do
+		for _ = 1, cardsPerOpen do
+			local rarity = pickRarityFromRates(rates)
+			local cardId = pickCardForRarity(rarity)
+			if cardId then
+				table.insert(rewards, cardId)
+			end
+		end
+	end
+
+	return rewards
+end
+
+local function fail(reason)
+	return {
+		ok = false,
+		reason = reason,
+	}
+end
+
+local function success(state, extra)
+	local out = {
+		ok = true,
+		state = state,
+	}
+	if type(extra) == "table" then
+		for k, v in pairs(extra) do
+			out[k] = v
+		end
+	end
+	return out
+end
+
+requestRemote.OnServerInvoke = function(player, request)
+	if type(request) ~= "table" then
+		return fail("InvalidRequest")
+	end
+
+	local actionType = request.actionType
+	local payload = request.payload
+	if type(actionType) ~= "string" or actionType == "" then
+		return fail("InvalidActionType")
+	end
+
+	if actionType == EconomyProtocol.ActionType.GetState then
+		local ok, stateOrReason = bridgeCall("GetEconomyState", player.UserId)
+		if not ok then
+			return fail(stateOrReason)
+		end
+		return success(stateOrReason)
+	end
+
+	if actionType == EconomyProtocol.ActionType.BuyPack then
+		local packId = payload and payload.packId
+		local amount = clampWholeNumber(payload and payload.amount, 1, 20, 1)
+		local pack = EconomyCatalog.GetPack(packId)
+		if not pack then
+			return fail("PackNotFound")
+		end
+
+		local totalCost = math.max(0, math.floor(tonumber(pack.Price) or 0)) * amount
+		local ok, stateOrReason = bridgeCall("ExecuteEconomyDelta", {
+			userId = player.UserId,
+			coinsDelta = -totalCost,
+			boosterPacksDelta = {
+				[packId] = amount,
+			},
+		})
+		if not ok then
+			return fail(stateOrReason)
+		end
+		return success(stateOrReason)
+	end
+
+	if actionType == EconomyProtocol.ActionType.OpenPack then
+		local packId = payload and payload.packId
+		local amount = clampWholeNumber(payload and payload.amount, 1, 5, 1)
+		local pack = EconomyCatalog.GetPack(packId)
+		if not pack then
+			return fail("PackNotFound")
+		end
+
+		local gotState, stateOrReason = bridgeCall("GetEconomyState", player.UserId)
+		if not gotState then
+			return fail(stateOrReason)
+		end
+		local ownedCount = math.max(0, math.floor(tonumber(stateOrReason.boosterPacks and stateOrReason.boosterPacks[packId]) or 0))
+		if ownedCount < amount then
+			return fail("NotEnoughPacks")
+		end
+
+		local rewards = rollPackRewards(pack, amount)
+		if #rewards == 0 then
+			return fail("NoRewardCardsConfigured")
+		end
+
+		local ok, state = bridgeCall("ExecuteEconomyDelta", {
+			userId = player.UserId,
+			boosterPacksDelta = {
+				[packId] = -amount,
+			},
+			grantCards = rewards,
+		})
+		if not ok then
+			return fail(state)
+		end
+		return success(state, {
+			grantedCards = rewards,
+		})
+	end
+
+	if actionType == EconomyProtocol.ActionType.BuyItem then
+		local itemId = payload and payload.itemId
+		local amount = clampWholeNumber(payload and payload.amount, 1, 50, 1)
+		local offer = EconomyCatalog.GetItemOffer(itemId)
+		if not offer then
+			return fail("ItemNotFound")
+		end
+
+		local grantAmount = math.max(1, math.floor(tonumber(offer.GrantAmount) or 1)) * amount
+		local totalCost = math.max(0, math.floor(tonumber(offer.Price) or 0)) * amount
+		local ok, state = bridgeCall("ExecuteEconomyDelta", {
+			userId = player.UserId,
+			coinsDelta = -totalCost,
+			itemsDelta = {
+				[itemId] = grantAmount,
+			},
+		})
+		if not ok then
+			return fail(state)
+		end
+		return success(state)
+	end
+
+	if actionType == EconomyProtocol.ActionType.UseItem then
+		local itemId = payload and payload.itemId
+		local amount = clampWholeNumber(payload and payload.amount, 1, 10, 1)
+		local offer = EconomyCatalog.GetItemOffer(itemId)
+		if not offer then
+			return fail("ItemNotFound")
+		end
+
+		local ok, state = bridgeCall("ExecuteEconomyDelta", {
+			userId = player.UserId,
+			itemsDelta = {
+				[itemId] = -amount,
+			},
+		})
+		if not ok then
+			return fail(state)
+		end
+
+		if itemId == "AutoRoll2x20s" then
+			AutoRollRuntime.AddAutoRollBuff(player.UserId, 2, 20 * amount)
+			return success(state, {
+				effect = {
+					itemId = itemId,
+					multiplier = 2,
+					duration = 20 * amount,
+				},
+			})
+		end
+
+		return success(state)
+	end
+
+	if actionType == EconomyProtocol.ActionType.BuyDirectCard then
+		local cardId = payload and payload.cardId
+		local amount = clampWholeNumber(payload and payload.amount, 1, 10, 1)
+		local offer = EconomyCatalog.GetDirectCardOffer(cardId)
+		if not offer then
+			return fail("DirectCardNotFound")
+		end
+
+		local grantAmount = math.max(1, math.floor(tonumber(offer.GrantAmount) or 1)) * amount
+		local totalCost = math.max(0, math.floor(tonumber(offer.Price) or 0)) * amount
+		local grants = {}
+		for _ = 1, grantAmount do
+			table.insert(grants, cardId)
+		end
+
+		local ok, state = bridgeCall("ExecuteEconomyDelta", {
+			userId = player.UserId,
+			coinsDelta = -totalCost,
+			grantCards = grants,
+		})
+		if not ok then
+			if state == "AlreadyOwnedUniqueCard" then
+				return fail("AlreadyOwnedTranscendent")
+			end
+			return fail(state)
+		end
+		return success(state, {
+			grantedCards = grants,
+		})
+	end
+
+	return fail("UnsupportedAction")
+end

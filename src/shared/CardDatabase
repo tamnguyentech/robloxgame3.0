@@ -1,0 +1,777 @@
+local CardDatabase = {}
+
+-- Card data table
+-- Add cards here using decal/image name as the key.
+-- Template:
+-- ["yourCardId"] = {
+--     Name = "Display Name",
+--     Attack = 100,
+--     Health = 250,
+--     AttackIntervalSeconds = 5.0,
+--     Category = "Series or Faction",
+--     Rarity = "Common", -- Common | Uncommon | Rare | Epic | Legendary | God | Transcendent
+--     ArtFitMode = "Fit", -- Optional: Fit | Crop | Stretch
+--     ArtAssetId = "rbxassetid://123456", -- Optional: image fallback when CardArt decal is missing
+--     VideoAssetId = "rbxassetid://123456", -- Optional: uses VideoFrame art path for cards in decks
+--     HoverVideoAssetId = "rbxassetid://654321", -- Optional: separate hover preview stream
+--     AbilityId = "", -- Optional: auto-battle ability key (e.g. AttackSpeedBoost)
+--     AbilityCooldownSeconds = 10, -- Optional: per-card ability cooldown
+-- },
+local cardData = {
+    ["BeliodusX"] = {
+        Name = "BeliodusX",
+        Attack = 1200000000,
+        Health = 10800000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Seven Deadly Sins",
+        Rarity = "God",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["3starichigo"] = {
+        Name = "3 Star Ichigo",
+        Attack = 7800,
+        Health = 34320,
+        AttackIntervalSeconds = 5.0,
+        Category = "Bleach",
+        Rarity = "Uncommon",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["5stargoku"] = {
+        Name = "5 Star Goku",
+        Attack = 960000,
+        Health = 5568000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Dragon Ball",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["5starsasuke"] = {
+        Name = "5 Star Sasuke",
+        Attack = 940000,
+        Health = 5452000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Naruto",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["6eyesgojo"] = {
+        Name = "6 Eyes Gojo",
+        Attack = 10200000,
+        Health = 69360000,
+        AttackIntervalSeconds = 5.0,
+        Category = "JJK",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["6starsasuke"] = {
+        Name = "6 Star Sasuke",
+        Attack = 10800000,
+        Health = 73440000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Naruto",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["Goku6Star"] = {
+        Name = "Goku Super Saiyan 6 Star",
+        Attack = 10000000,
+        Health = 68000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Dragon Ball",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["Ichigo"] = {
+        Name = "Ichigo Bankai",
+        Attack = 95000,
+        Health = 475000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Bleach",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["Luffy"] = {
+        Name = "Luffy Gear 5",
+        Attack = 900000,
+        Health = 5220000,
+        AttackIntervalSeconds = 5.0,
+        Category = "One Piece",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["Naruto"] = {
+        Name = "Naruto Six Paths",
+        Attack = 8500,
+        Health = 37400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Naruto",
+        Rarity = "Uncommon",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["baryonnaruto"] = {
+        Name = "Baryon Naruto",
+        Attack = 11600000,
+        Health = 78880000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Naruto",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["basegoku"] = {
+        Name = "Base Goku",
+        Attack = 680,
+        Health = 2720,
+        AttackIntervalSeconds = 5.0,
+        Category = "Dragon Ball",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["baseluffy"] = {
+        Name = "Base Luffy",
+        Attack = 660,
+        Health = 2640,
+        AttackIntervalSeconds = 5.0,
+        Category = "One Piece",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["darkmonarch"] = {
+        Name = "Dark Monarch",
+        Attack = 11200000,
+        Health = 76160000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Solo Leveling",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["gear2luffy"] = {
+        Name = "Gear 2 Luffy",
+        Attack = 82000,
+        Health = 410000,
+        AttackIntervalSeconds = 5.0,
+        Category = "One Piece",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["gear4luffy"] = {
+        Name = "Gear 4 Luffy",
+        Attack = 10400000,
+        Health = 70720000,
+        AttackIntervalSeconds = 5.0,
+        Category = "One Piece",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["gilgamesh"] = {
+        Name = "Gilgamesh",
+        Attack = 980000,
+        Health = 5684000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Fate",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["kaguya"] = {
+        Name = "Kaguya",
+        Attack = 11100000,
+        Health = 75480000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Naruto",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["madara"] = {
+        Name = "Madara",
+        Attack = 10600000,
+        Health = 72080000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Naruto",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["maskedichigo"] = {
+        Name = "Masked Ichigo",
+        Attack = 920000,
+        Health = 5336000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Bleach",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+    ["Asuna"] = {
+        Name = "Asuna",
+        Attack = 1250000,
+        Health = 6250000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Sword Art Online",
+        Rarity = "Rare",
+        ArtFitMode = "Crop",
+        ArtAssetId = "rbxassetid://72026872165398",
+        AbilityId = "AttackSpeedBoost",
+        AbilityCooldownSeconds = 12,
+    },
+    ["Tamayo"] = {
+        Name = "Tamayo",
+        Attack = 980000,
+        Health = 4900000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Demon Slayer",
+        Rarity = "Rare",
+        ArtFitMode = "Crop",
+        ArtAssetId = "rbxassetid://80254295466382",
+        AbilityId = "AttackDamageBoost",
+        AbilityCooldownSeconds = 15,
+    },
+    ["Aqua"] = {
+        Name = "Aqua",
+        Attack = 1320000,
+        Health = 6600000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Konosuba",
+        Rarity = "Rare",
+        ArtFitMode = "Crop",
+        ArtAssetId = "rbxassetid://108556016000847",
+        AbilityId = "HealAlly",
+        AbilityCooldownSeconds = 9,
+    },
+    ["BaloneyBossTestDummy"] = {
+        Name = "Baloney Boss Test Dummy",
+        Attack = 4000000,
+        Health = 10000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Boss",
+        Rarity = "God",
+        ArtFitMode = "Fit",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+    },
+}
+
+-- Special video cards are intentionally defined outside the decal-driven card list.
+-- They are merged into the runtime database and rendered with VideoFrame.
+local specialVideoCardData = {
+    ["AstraEclipse"] = {
+        Name = "Astra Eclipse",
+        Attack = 1850000000,
+        Health = 4200000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Celestial",
+        Rarity = "Transcendent",
+        ArtFitMode = "Fit",
+        VideoAssetId = "rbxassetid://104020003412677",
+        HoverVideoAssetId = "",
+        IsSpecialVideoCard = true,
+    },
+}
+
+local DEFAULT_CARD_TEMPLATE = {
+    Attack = 50,
+    Health = 120,
+    AttackIntervalSeconds = 5.0,
+    Category = "Uncategorized",
+    Rarity = "Common",
+    ArtFitMode = "Fit",
+    ArtAssetId = "",
+    VideoAssetId = "",
+    HoverVideoAssetId = "",
+    AbilityId = "",
+    AbilityCooldownSeconds = 10,
+}
+
+local PLAYER_CARD_HEALTH_MULTIPLIER = 2
+
+
+local HEALTH_MULTIPLIER_BY_RARITY = {
+    Common = 2.0,
+    Uncommon = 2.2,
+    Rare = 2.5,
+    Epic = 2.9,
+    Legendary = 3.4,
+    God = 4.5,
+    Transcendent = 6.0,
+}
+
+local cardDataReady = false
+
+local function sanitizeString(value, fallback)
+    if type(value) == "string" and value ~= "" then
+        return value
+    end
+    return fallback
+end
+
+local function sanitizeAttack(value)
+    if type(value) == "number" then
+        return math.max(0, math.floor(value))
+    end
+    return DEFAULT_CARD_TEMPLATE.Attack
+end
+
+local function deriveDefaultHealth(attackValue, rarityValue)
+    local atk = math.max(1, math.floor(tonumber(attackValue) or DEFAULT_CARD_TEMPLATE.Attack))
+    local rarity = (type(rarityValue) == "string" and rarityValue) or DEFAULT_CARD_TEMPLATE.Rarity
+    local mult = HEALTH_MULTIPLIER_BY_RARITY[rarity] or HEALTH_MULTIPLIER_BY_RARITY.Common
+    return math.max(60, math.floor((atk * mult) + 0.5))
+end
+
+local function sanitizeHealth(value, attackValue, rarityValue)
+    local baseHealth
+    if type(value) == "number" then
+        baseHealth = math.max(1, math.floor(value))
+    else
+        baseHealth = deriveDefaultHealth(attackValue, rarityValue)
+    end
+    return math.max(1, math.floor(baseHealth * PLAYER_CARD_HEALTH_MULTIPLIER))
+end
+
+local function sanitizeAttackIntervalSeconds(_value, _rarityValue)
+    -- Global balance rule: all cards use a 5.0s attack interval.
+    return DEFAULT_CARD_TEMPLATE.AttackIntervalSeconds
+end
+
+local function sanitizeArtFitMode(value)
+    if type(value) ~= "string" then
+        return DEFAULT_CARD_TEMPLATE.ArtFitMode
+    end
+
+    local normalized = string.lower(value)
+    if normalized == "stretch" then
+        return "Stretch"
+    end
+    if normalized == "crop" then
+        return "Crop"
+    end
+    return "Fit"
+end
+
+local function sanitizeVideoAssetId(value)
+    if type(value) ~= "string" then
+        return ""
+    end
+    if value == "" or value == "rbxassetid://0" then
+        return ""
+    end
+    local digits = value:match("^%d+$")
+    if digits then
+        return "rbxassetid://" .. digits
+    end
+    return value
+end
+
+local function sanitizeImageAssetId(value)
+    if type(value) ~= "string" then
+        return ""
+    end
+    if value == "" or value == "rbxassetid://0" then
+        return ""
+    end
+    local digits = value:match("^%d+$")
+    if digits then
+        return "rbxassetid://" .. digits
+    end
+    return value
+end
+
+local function sanitizeAbilityId(value)
+    if type(value) ~= "string" then
+        return DEFAULT_CARD_TEMPLATE.AbilityId
+    end
+    return value
+end
+
+local function sanitizeAbilityCooldownSeconds(value)
+    local n = tonumber(value)
+    if not n then
+        return DEFAULT_CARD_TEMPLATE.AbilityCooldownSeconds
+    end
+    return math.max(1, math.floor(n + 0.5))
+end
+
+local function prettifyCardId(cardId)
+    -- Converts ids like "Goku5Star" into "Goku 5 Star" for a readable default name.
+    local pretty = cardId:gsub("(%l)(%u)", "%1 %2")
+    pretty = pretty:gsub("(%a)(%d)", "%1 %2")
+    pretty = pretty:gsub("(%d)(%a)", "%1 %2")
+    return pretty
+end
+
+local function autoRegisterCardArtCards()
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local cardArtFolder = ReplicatedStorage:FindFirstChild("CardArt")
+    if not cardArtFolder then
+        return
+    end
+
+    for _, art in ipairs(cardArtFolder:GetChildren()) do
+        if art:IsA("Decal") then
+            local cardId = art.Name
+            local existing = cardData[cardId]
+
+            -- Editable metadata can be set directly on each CardArt decal in Studio:
+            -- DisplayName or Label (string), Attack (number), Category (string), Rarity (string)
+            local displayNameAttr = art:GetAttribute("DisplayName")
+            if displayNameAttr == nil then
+                displayNameAttr = art:GetAttribute("Label")
+            end
+            local attackAttr = art:GetAttribute("Attack")
+            local categoryAttr = art:GetAttribute("Category")
+            local rarityAttr = art:GetAttribute("Rarity")
+            local artFitModeAttr = art:GetAttribute("ArtFitMode")
+            local forceStretchAttr = art:GetAttribute("ForceStretch")
+            local squareArtAttr = art:GetAttribute("SquareArt")
+            local videoAssetIdAttr = art:GetAttribute("VideoAssetId")
+
+            local artFitMode = (existing and existing.ArtFitMode) or DEFAULT_CARD_TEMPLATE.ArtFitMode
+            if type(artFitModeAttr) == "string" then
+                artFitMode = sanitizeArtFitMode(artFitModeAttr)
+            elseif forceStretchAttr == true or squareArtAttr == true then
+                artFitMode = "Stretch"
+            end
+
+            if existing then
+                -- Keep hardcoded/registered card identity authoritative.
+                -- Only art fit behavior may be inferred from decal metadata.
+                cardData[cardId] = {
+                    Name = sanitizeString(existing.Name, prettifyCardId(cardId)),
+                    Attack = sanitizeAttack(existing.Attack),
+                    Health = sanitizeHealth(existing.Health, existing.Attack, existing.Rarity),
+                    AttackIntervalSeconds = sanitizeAttackIntervalSeconds(existing.AttackIntervalSeconds, existing.Rarity),
+                    Category = sanitizeString(existing.Category, DEFAULT_CARD_TEMPLATE.Category),
+                    Rarity = sanitizeString(existing.Rarity, DEFAULT_CARD_TEMPLATE.Rarity),
+                    ArtFitMode = artFitMode,
+					ArtAssetId = sanitizeImageAssetId(existing.ArtAssetId),
+					VideoAssetId = sanitizeVideoAssetId(existing.VideoAssetId),
+                    HoverVideoAssetId = sanitizeVideoAssetId(existing.HoverVideoAssetId),
+                    AbilityId = sanitizeAbilityId(existing.AbilityId),
+                    AbilityCooldownSeconds = sanitizeAbilityCooldownSeconds(existing.AbilityCooldownSeconds),
+					IsSpecialVideoCard = existing.IsSpecialVideoCard == true,
+                }
+            else
+                -- New cards discovered from CardArt may use decal attributes as metadata.
+                cardData[cardId] = {
+                    Name = sanitizeString(displayNameAttr, prettifyCardId(cardId)),
+                    Attack = (type(attackAttr) == "number") and sanitizeAttack(attackAttr) or DEFAULT_CARD_TEMPLATE.Attack,
+                    Health = sanitizeHealth(art:GetAttribute("Health"), attackAttr, rarityAttr),
+                    AttackIntervalSeconds = sanitizeAttackIntervalSeconds(art:GetAttribute("AttackIntervalSeconds"), rarityAttr),
+                    Category = sanitizeString(categoryAttr, DEFAULT_CARD_TEMPLATE.Category),
+                    Rarity = sanitizeString(rarityAttr, DEFAULT_CARD_TEMPLATE.Rarity),
+                    ArtFitMode = artFitMode,
+					ArtAssetId = "",
+					VideoAssetId = sanitizeVideoAssetId(videoAssetIdAttr),
+                    HoverVideoAssetId = "",
+                    AbilityId = DEFAULT_CARD_TEMPLATE.AbilityId,
+                    AbilityCooldownSeconds = DEFAULT_CARD_TEMPLATE.AbilityCooldownSeconds,
+					IsSpecialVideoCard = false,
+                }
+            end
+        end
+    end
+end
+
+local function normalizeAllCardDataEntries()
+    for cardId, data in pairs(cardData) do
+        cardData[cardId] = {
+            Name = sanitizeString(data.Name, prettifyCardId(cardId)),
+            Attack = sanitizeAttack(data.Attack),
+            Health = sanitizeHealth(data.Health, data.Attack, data.Rarity),
+            AttackIntervalSeconds = sanitizeAttackIntervalSeconds(data.AttackIntervalSeconds, data.Rarity),
+            Category = sanitizeString(data.Category, DEFAULT_CARD_TEMPLATE.Category),
+            Rarity = sanitizeString(data.Rarity, DEFAULT_CARD_TEMPLATE.Rarity),
+            ArtFitMode = sanitizeArtFitMode(data.ArtFitMode),
+            ArtAssetId = sanitizeImageAssetId(data.ArtAssetId),
+            VideoAssetId = sanitizeVideoAssetId(data.VideoAssetId),
+            HoverVideoAssetId = sanitizeVideoAssetId(data.HoverVideoAssetId),
+            AbilityId = sanitizeAbilityId(data.AbilityId),
+            AbilityCooldownSeconds = sanitizeAbilityCooldownSeconds(data.AbilityCooldownSeconds),
+            IsSpecialVideoCard = data.IsSpecialVideoCard == true,
+        }
+    end
+end
+
+local function registerSpecialVideoCards()
+	for cardId, data in pairs(specialVideoCardData) do
+		cardData[cardId] = {
+			Name = sanitizeString(data.Name, prettifyCardId(cardId)),
+			Attack = sanitizeAttack(data.Attack),
+			Health = sanitizeHealth(data.Health, data.Attack, data.Rarity),
+			AttackIntervalSeconds = sanitizeAttackIntervalSeconds(data.AttackIntervalSeconds, data.Rarity),
+			Category = sanitizeString(data.Category, DEFAULT_CARD_TEMPLATE.Category),
+			Rarity = sanitizeString(data.Rarity, "Transcendent"),
+			ArtFitMode = sanitizeArtFitMode(data.ArtFitMode),
+            ArtAssetId = sanitizeImageAssetId(data.ArtAssetId),
+			VideoAssetId = sanitizeVideoAssetId(data.VideoAssetId),
+            HoverVideoAssetId = sanitizeVideoAssetId(data.HoverVideoAssetId),
+            AbilityId = sanitizeAbilityId(data.AbilityId),
+            AbilityCooldownSeconds = sanitizeAbilityCooldownSeconds(data.AbilityCooldownSeconds),
+			IsSpecialVideoCard = true,
+		}
+	end
+end
+
+local function ensureCardDataReady()
+    if cardDataReady then
+        return
+    end
+	normalizeAllCardDataEntries()
+	registerSpecialVideoCards()
+    autoRegisterCardArtCards()
+    cardDataReady = true
+end
+
+local function resolveCardId(cardRef)
+    if type(cardRef) ~= "string" or cardRef == "" then
+        return nil
+    end
+
+    cardRef = string.gsub(cardRef, "^%s*(.-)%s*$", "%1")
+    if cardRef == "" then
+        return nil
+    end
+
+    if cardData[cardRef] then
+        return cardRef
+    end
+
+    local target = string.lower(cardRef)
+
+    -- Pass 1: resolve by id only (case-insensitive), no name fallback yet.
+    for id in pairs(cardData) do
+        if string.lower(id) == target then
+            return id
+        end
+    end
+
+    -- Pass 2: resolve by display name only after id checks are exhausted.
+    for id, data in pairs(cardData) do
+        if type(data.Name) == "string" and string.lower(data.Name) == target then
+            return id
+        end
+    end
+
+    return nil
+end
+
+local function resolveCardIdStrict(cardRef)
+    if type(cardRef) ~= "string" or cardRef == "" then
+        return nil
+    end
+
+    cardRef = string.gsub(cardRef, "^%s*(.-)%s*$", "%1")
+    if cardRef == "" then
+        return nil
+    end
+
+    if cardData[cardRef] then
+        return cardRef
+    end
+
+    local target = string.lower(cardRef)
+    for id in pairs(cardData) do
+        if string.lower(id) == target then
+            return id
+        end
+    end
+
+    return nil
+end
+
+local function formatCompactNumber(value)
+    local num = tonumber(value)
+    if not num then
+        return tostring(value)
+    end
+
+    local absNum = math.abs(num)
+    local suffix = ""
+    local divisor = 1
+
+    if absNum >= 1e12 then
+        suffix = "T"
+        divisor = 1e12
+    elseif absNum >= 1e9 then
+        suffix = "B"
+        divisor = 1e9
+    elseif absNum >= 1e6 then
+        suffix = "M"
+        divisor = 1e6
+    elseif absNum >= 1e3 then
+        suffix = "K"
+        divisor = 1e3
+    end
+
+    if suffix == "" then
+        return tostring(math.floor(num + 0.5))
+    end
+
+    local compact = num / divisor
+    local roundedToTenth = math.floor((compact * 10) + 0.5) / 10
+    if math.abs(roundedToTenth - math.floor(roundedToTenth)) < 0.001 then
+        return string.format("%d%s", math.floor(roundedToTenth), suffix)
+    end
+    return string.format("%.1f%s", roundedToTenth, suffix)
+end
+
+-- Function to get card data
+function CardDatabase.GetCardData(cardId)
+    ensureCardDataReady()
+    local resolvedId = resolveCardId(cardId)
+    if not resolvedId then
+        return nil
+    end
+    return cardData[resolvedId]
+end
+
+function CardDatabase.ResolveCardId(cardRef)
+    ensureCardDataReady()
+    return resolveCardId(cardRef)
+end
+
+function CardDatabase.ResolveCardIdStrict(cardRef)
+    ensureCardDataReady()
+    return resolveCardIdStrict(cardRef)
+end
+
+function CardDatabase.FormatAttack(value)
+    return formatCompactNumber(value)
+end
+
+-- Function to get default starter inventory
+function CardDatabase.GetDefaultInventory()
+    return {"Goku6Star", "Ichigo", "Luffy", "Naruto"}
+end
+
+-- Function to get all available card IDs
+function CardDatabase.GetAllCardIds()
+    ensureCardDataReady()
+    local ids = {}
+    for id in pairs(cardData) do
+        table.insert(ids, id)
+    end
+    return ids
+end
+
+-- Function to validate if a card has all required assets
+function CardDatabase.ValidateCard(cardId)
+    ensureCardDataReady()
+    local data = cardData[cardId]
+    if not data then return false, "Card not found in database" end
+    
+    -- Check if required fields exist
+    if not data.Name or not data.Attack or not data.Category then
+        return false, "Missing required card data fields"
+    end
+    
+    -- In a real implementation, you could check for assets here
+    -- For now, just validate data structure
+    return true, "Valid"
+end
+
+-- Function to get cards by category
+function CardDatabase.GetCardsByCategory(category)
+    ensureCardDataReady()
+    local cards = {}
+    for id, data in pairs(cardData) do
+        if data.Category == category then
+            table.insert(cards, id)
+        end
+    end
+    return cards
+end
+
+-- Function to get cards by rarity
+function CardDatabase.GetCardsByRarity(rarity)
+    ensureCardDataReady()
+    local cards = {}
+    for id, data in pairs(cardData) do
+        local cardRarity = data.Rarity or "Common"
+        if cardRarity == rarity then
+            table.insert(cards, id)
+        end
+    end
+    return cards
+end
+
+-- Function to get all unique categories
+function CardDatabase.GetAllCategories()
+    ensureCardDataReady()
+    local categories = {}
+    local seen = {}
+    for _, data in pairs(cardData) do
+        if data.Category and not seen[data.Category] then
+            seen[data.Category] = true
+            table.insert(categories, data.Category)
+        end
+    end
+    return categories
+end
+
+-- Optional helper to explicitly override or add cards from scripts.
+function CardDatabase.RegisterCard(cardId, data)
+    if type(cardId) ~= "string" or type(data) ~= "table" then
+        return false, "Invalid args"
+    end
+    if not data.Name or not data.Attack or not data.Category then
+        return false, "Missing required fields: Name, Attack, Category"
+    end
+
+    cardData[cardId] = {
+        Name = data.Name,
+        Attack = data.Attack,
+        Health = sanitizeHealth(data.Health, data.Attack, data.Rarity),
+        AttackIntervalSeconds = sanitizeAttackIntervalSeconds(data.AttackIntervalSeconds, data.Rarity),
+        Category = data.Category,
+        Rarity = data.Rarity or "Common",
+		ArtFitMode = sanitizeArtFitMode(data.ArtFitMode),
+        ArtAssetId = sanitizeImageAssetId(data.ArtAssetId),
+		VideoAssetId = sanitizeVideoAssetId(data.VideoAssetId),
+        HoverVideoAssetId = sanitizeVideoAssetId(data.HoverVideoAssetId),
+        AbilityId = sanitizeAbilityId(data.AbilityId),
+        AbilityCooldownSeconds = sanitizeAbilityCooldownSeconds(data.AbilityCooldownSeconds),
+		IsSpecialVideoCard = data.IsSpecialVideoCard == true,
+    }
+    cardDataReady = true
+    return true, "Registered"
+end
+
+return CardDatabase
+

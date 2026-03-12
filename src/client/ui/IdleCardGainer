@@ -1,0 +1,652 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local BoosterOpenSequence = require(script.Parent:WaitForChild("ui"):WaitForChild("BoosterOpenSequence"))
+local RarityConfig = require(script.Parent:WaitForChild("RarityConfig"))
+local IdleRollProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("IdleRollProtocol"))
+
+-- Template for card notifications
+local template = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("CardTemplate"):WaitForChild("Card")
+local artFolder = ReplicatedStorage:WaitForChild("CardArt")
+local saveEvent = ReplicatedStorage:WaitForChild("SaveDataEvent")
+
+-- BindableEvent to communicate with InventoryController
+local idleEvent = ReplicatedStorage:WaitForChild("IdleCardEvent")
+local autoRollBuffEvent = ReplicatedStorage:FindFirstChild("AutoRollBuffEvent")
+if not autoRollBuffEvent then
+	autoRollBuffEvent = Instance.new("BindableEvent")
+	autoRollBuffEvent.Name = "AutoRollBuffEvent"
+	autoRollBuffEvent.Parent = ReplicatedStorage
+end
+
+local boosterOpenVisualEvent = ReplicatedStorage:FindFirstChild("BoosterOpenVisualEvent")
+if not boosterOpenVisualEvent then
+	boosterOpenVisualEvent = Instance.new("BindableEvent")
+	boosterOpenVisualEvent.Name = "BoosterOpenVisualEvent"
+	boosterOpenVisualEvent.Parent = ReplicatedStorage
+end
+
+local idleRollRemotes = ReplicatedStorage:WaitForChild(IdleRollProtocol.Remotes.FolderName)
+local idleRollControlEvent = idleRollRemotes:WaitForChild(IdleRollProtocol.Remotes.ControlEvent)
+
+local function getPreviewRarityColor(rarity)
+	return RarityConfig.GetPreviewRarityColor(rarity)
+end
+
+local function getBorderPulseScale(rarity)
+	return RarityConfig.GetBorderPulseScale(rarity)
+end
+
+local function buildBorderGradient(baseColor)
+	return RarityConfig.BuildBorderGradient(baseColor)
+end
+
+local function applyBeliodusShadowParticles(card)
+	if not card or card:GetAttribute("HasBeliodusShadowAura") then
+		return
+	end
+	card:SetAttribute("HasBeliodusShadowAura", true)
+
+	local aura = card:FindFirstChild("BeliodusShadowAura")
+	if not aura then
+		aura = Instance.new("Frame")
+		aura.Name = "BeliodusShadowAura"
+		aura.Size = UDim2.new(1, 36, 1, 36)
+		aura.Position = UDim2.fromOffset(-18, -18)
+		aura.BackgroundTransparency = 1
+		aura.BorderSizePixel = 0
+		aura.ClipsDescendants = false
+		aura.ZIndex = math.max(14, card.ZIndex + 4)
+		aura.Parent = card
+	end
+
+	task.spawn(function()
+		while aura.Parent and card.Parent do
+			for _ = 1, 2 do
+				local particle = Instance.new("Frame")
+				particle.Name = "ShadowParticle"
+				particle.AnchorPoint = Vector2.new(0.5, 0.5)
+				local startX = math.random(4, math.max(5, aura.AbsoluteSize.X - 4))
+				local startY = math.random(4, math.max(5, aura.AbsoluteSize.Y - 4))
+				local sizePx = math.random(4, 10)
+				particle.Size = UDim2.fromOffset(sizePx, sizePx)
+				particle.Position = UDim2.fromOffset(startX, startY)
+				particle.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+				particle.BackgroundTransparency = 0.2 + (math.random() * 0.25)
+				particle.BorderSizePixel = 0
+				particle.ZIndex = aura.ZIndex
+				particle.Parent = aura
+
+				local particleCorner = Instance.new("UICorner")
+				particleCorner.CornerRadius = UDim.new(1, 0)
+				particleCorner.Parent = particle
+
+				local rise = math.random(20, 44)
+				local drift = math.random(-26, 26)
+				local t = 0.65 + (math.random() * 0.55)
+				TweenService:Create(
+					particle,
+					TweenInfo.new(t, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+					{
+						Position = UDim2.fromOffset(startX + drift, startY - rise),
+						BackgroundTransparency = 1,
+						Size = UDim2.fromOffset(sizePx + 2, sizePx + 2),
+					}
+				):Play()
+
+				task.delay(t + 0.05, function()
+					if particle and particle.Parent then
+						particle:Destroy()
+					end
+				end)
+			end
+
+			task.wait(0.055)
+		end
+	end)
+end
+
+local function applyAnimatedCardBorder(card, rarity, cardId)
+	if not card or card:GetAttribute("HasAnimatedBorder") then
+		return
+	end
+	card:SetAttribute("HasAnimatedBorder", true)
+
+	local isBeliodus = (cardId == "BeliodusX") or (card and card.Name == "BeliodusX")
+	local isGodRarity = rarity == "God" or rarity == "Transcendent"
+	local borderColor = isBeliodus and Color3.fromRGB(8, 8, 8) or getPreviewRarityColor(rarity)
+	local pulseScale = getBorderPulseScale(rarity)
+	if isBeliodus then
+		pulseScale = math.max(pulseScale, 1.7)
+	elseif isGodRarity then
+		pulseScale = math.max(pulseScale, 1.5)
+	end
+
+	local borderStroke = card:FindFirstChild("CardBorderStroke")
+	if not borderStroke then
+		borderStroke = Instance.new("UIStroke")
+		borderStroke.Name = "CardBorderStroke"
+		borderStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		borderStroke.Thickness = 3.4
+		borderStroke.Transparency = 0.18
+		borderStroke.Parent = card
+	end
+	borderStroke.Color = borderColor
+
+	local borderGradient = borderStroke:FindFirstChild("CardBorderGradient")
+	if not borderGradient then
+		borderGradient = Instance.new("UIGradient")
+		borderGradient.Name = "CardBorderGradient"
+		borderGradient.Parent = borderStroke
+	end
+	borderGradient.Color = buildBorderGradient(borderColor)
+	borderGradient.Rotation = 0
+
+	local glowFrame = card:FindFirstChild("CardBorderGlow")
+	if not glowFrame then
+		glowFrame = Instance.new("Frame")
+		glowFrame.Name = "CardBorderGlow"
+		glowFrame.BackgroundTransparency = 1
+		glowFrame.BorderSizePixel = 0
+		glowFrame.Size = UDim2.new(1, 10, 1, 10)
+		glowFrame.Position = UDim2.fromOffset(-5, -5)
+		glowFrame.ZIndex = card.ZIndex
+		glowFrame.Parent = card
+
+		local glowCorner = Instance.new("UICorner")
+		glowCorner.CornerRadius = UDim.new(0, 10)
+		glowCorner.Parent = glowFrame
+	end
+
+	local glowStroke = glowFrame:FindFirstChild("GlowStroke")
+	if not glowStroke then
+		glowStroke = Instance.new("UIStroke")
+		glowStroke.Name = "GlowStroke"
+		glowStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		glowStroke.Thickness = 6.6
+		glowStroke.Transparency = 0.72
+		glowStroke.Parent = glowFrame
+	end
+	glowStroke.Color = borderColor
+
+	local glowGradient = glowStroke:FindFirstChild("GlowGradient")
+	if not glowGradient then
+		glowGradient = Instance.new("UIGradient")
+		glowGradient.Name = "GlowGradient"
+		glowGradient.Parent = glowStroke
+	end
+	glowGradient.Color = buildBorderGradient(borderColor)
+	glowGradient.Rotation = 0
+
+	TweenService:Create(
+		borderStroke,
+		TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{
+			Thickness = 4.2 * pulseScale,
+			Transparency = 0.03,
+		}
+	):Play()
+
+	TweenService:Create(
+		glowStroke,
+		TweenInfo.new(1.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{
+			Thickness = 7.8 * pulseScale,
+			Transparency = 0.84,
+		}
+	):Play()
+
+	TweenService:Create(
+		borderGradient,
+		TweenInfo.new(2.6, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, false),
+		{Rotation = 360}
+	):Play()
+
+	TweenService:Create(
+		glowGradient,
+		TweenInfo.new(3.4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, false),
+		{Rotation = -360}
+	):Play()
+
+	if isBeliodus or isGodRarity then
+		applyBeliodusShadowParticles(card)
+	end
+end
+
+local function tweenIfProperty(guiObject, info, goals)
+	if guiObject and guiObject.Parent then
+		TweenService:Create(guiObject, info, goals):Play()
+	end
+end
+
+local function fadeOutNotificationCard(notificationCard, duration)
+	local fadeInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+	tweenIfProperty(notificationCard, fadeInfo, {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(0, 0, 0, 0),
+	})
+
+	for _, obj in ipairs(notificationCard:GetDescendants()) do
+		if obj.Parent and (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
+			tweenIfProperty(obj, fadeInfo, {
+				TextTransparency = 1,
+				TextStrokeTransparency = 1,
+				BackgroundTransparency = 1,
+			})
+		elseif obj.Parent and (obj:IsA("ImageLabel") or obj:IsA("ImageButton")) then
+			tweenIfProperty(obj, fadeInfo, {
+				ImageTransparency = 1,
+				BackgroundTransparency = 1,
+			})
+		elseif obj.Parent and obj:IsA("UIStroke") then
+			tweenIfProperty(obj, fadeInfo, {Transparency = 1})
+		elseif obj.Parent and obj:IsA("Frame") then
+			tweenIfProperty(obj, fadeInfo, {BackgroundTransparency = 1})
+		end
+	end
+end
+
+-- Roll counter
+local rollCount = 0
+local level = 1
+local autoRolling = true
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local rollSpeedMultiplier = 1
+local buffEndTime = 0
+
+-- Create roll tracker UI
+local existingTrackerGui = playerGui:FindFirstChild("RollTrackerGui")
+if existingTrackerGui then
+	existingTrackerGui:Destroy()
+end
+
+local trackerGui = Instance.new("ScreenGui")
+trackerGui.Name = "RollTrackerGui"
+trackerGui.DisplayOrder = 50  -- Below notifications
+trackerGui.Parent = playerGui
+
+local autoRollButton = Instance.new("TextButton")
+autoRollButton.Name = "AutoRollButton"
+autoRollButton.Size = UDim2.fromOffset(120, 50)
+autoRollButton.Position = UDim2.new(0.5, -60, 1, -64)
+autoRollButton.AnchorPoint = Vector2.new(0, 0)
+autoRollButton.BackgroundTransparency = 0.35
+autoRollButton.BackgroundColor3 = Color3.fromRGB(30, 130, 30)
+autoRollButton.TextColor3 = Color3.new(1, 1, 1)
+autoRollButton.TextSize = 22
+autoRollButton.Font = Enum.Font.SourceSansBold
+autoRollButton.Text = "Auto: ON"
+autoRollButton.Parent = trackerGui
+
+local function UpdateAutoRollButton()
+	autoRollButton.Text = autoRolling and "Auto: ON" or "Auto: OFF"
+	autoRollButton.BackgroundColor3 = autoRolling and Color3.fromRGB(30, 130, 30) or Color3.fromRGB(130, 30, 30)
+end
+
+autoRollButton.MouseButton1Click:Connect(function()
+	autoRolling = not autoRolling
+	UpdateAutoRollButton()
+	idleRollControlEvent:FireServer({
+		enabled = autoRolling,
+	})
+end)
+
+UpdateAutoRollButton()
+
+local NOTIFICATION_CARD_WIDTH = 170
+local NOTIFICATION_CARD_HEIGHT = 250
+local AUTO_NOTIFICATION_DISPLAY_ORDER = -10
+local BOOSTER_NOTIFICATION_DISPLAY_ORDER = 300
+
+local buffGui = Instance.new("ScreenGui")
+buffGui.Name = "AutoRollBuffGui"
+buffGui.DisplayOrder = 75
+buffGui.Parent = playerGui
+
+local buffTimerLabel = Instance.new("TextLabel")
+buffTimerLabel.Name = "BuffTimerLabel"
+buffTimerLabel.AnchorPoint = Vector2.new(1, 0)
+buffTimerLabel.Size = UDim2.fromOffset(250, 42)
+buffTimerLabel.Position = UDim2.new(1, -16, 0, 14)
+buffTimerLabel.BackgroundColor3 = Color3.fromRGB(34, 62, 110)
+buffTimerLabel.BackgroundTransparency = 0.22
+buffTimerLabel.BorderSizePixel = 0
+buffTimerLabel.TextColor3 = Color3.new(1, 1, 1)
+buffTimerLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+buffTimerLabel.TextStrokeTransparency = 0
+buffTimerLabel.Font = Enum.Font.SourceSansBold
+buffTimerLabel.TextSize = 20
+buffTimerLabel.TextXAlignment = Enum.TextXAlignment.Center
+buffTimerLabel.Text = ""
+buffTimerLabel.Visible = false
+buffTimerLabel.Parent = buffGui
+
+local buffCorner = Instance.new("UICorner")
+buffCorner.CornerRadius = UDim.new(0, 8)
+buffCorner.Parent = buffTimerLabel
+
+local function updateBuffTimerLabel()
+	local now = os.clock()
+	if buffEndTime > now then
+		local remaining = math.max(0, math.ceil(buffEndTime - now))
+		buffTimerLabel.Text = "2x Auto Roll: " .. tostring(remaining) .. "s"
+		buffTimerLabel.Visible = true
+	else
+		rollSpeedMultiplier = 1
+		buffEndTime = 0
+		buffTimerLabel.Visible = false
+	end
+end
+
+autoRollBuffEvent.Event:Connect(function(payload)
+	if type(payload) ~= "table" then
+		return
+	end
+	local multiplier = tonumber(payload.multiplier) or 2
+	local duration = tonumber(payload.duration) or 20
+	multiplier = math.max(1, multiplier)
+	duration = math.max(1, duration)
+
+	rollSpeedMultiplier = math.max(rollSpeedMultiplier, multiplier)
+	buffEndTime = math.max(buffEndTime, os.clock()) + duration
+	updateBuffTimerLabel()
+end)
+
+task.spawn(function()
+	while player and player.Parent and script.Parent do
+		updateBuffTimerLabel()
+		task.wait(0.2)
+	end
+end)
+
+local function ShowLevelUpPopup(newLevel)
+	local popupGui = Instance.new("ScreenGui")
+	popupGui.Name = "LevelUpPopupGui"
+	popupGui.DisplayOrder = 200
+	popupGui.Parent = playerGui
+
+	local popupLabel = Instance.new("TextLabel")
+	popupLabel.Name = "LevelUpLabel"
+	popupLabel.Size = UDim2.new(0, 0, 0, 0)
+	popupLabel.Position = UDim2.fromScale(0.5, 0.2)
+	popupLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	popupLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	popupLabel.BackgroundTransparency = 0.2
+	popupLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+	popupLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+	popupLabel.TextStrokeTransparency = 0
+	popupLabel.Font = Enum.Font.SourceSansBold
+	popupLabel.TextScaled = true
+	popupLabel.Text = "LEVEL UP!  Lv." .. tostring(newLevel)
+	popupLabel.ZIndex = 50
+	popupLabel.Parent = popupGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = popupLabel
+
+	local inTween = TweenService:Create(
+		popupLabel,
+		TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{Size = UDim2.fromOffset(360, 70)}
+	)
+	inTween:Play()
+
+	task.delay(1.2, function()
+		if not popupLabel.Parent then
+			return
+		end
+		local outTween = TweenService:Create(
+			popupLabel,
+			TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{BackgroundTransparency = 1, TextTransparency = 1, TextStrokeTransparency = 1}
+		)
+		outTween:Play()
+		outTween.Completed:Wait()
+		popupGui:Destroy()
+	end)
+end
+
+-- Load persisted roll and level values when the server sends player data.
+saveEvent.OnClientEvent:Connect(function(data)
+	if type(data) ~= "table" then return end
+	if type(data.rollCount) == "number" then
+		rollCount = math.max(0, math.floor(data.rollCount))
+	end
+	if type(data.level) == "number" then
+		level = math.max(1, math.floor(data.level))
+	else
+		level = math.floor(rollCount / 100) + 1
+	end
+end)
+
+-- Function to show card gain notification
+local function findCardArtDecal(cardId)
+	if type(cardId) ~= "string" or cardId == "" then
+		return nil
+	end
+
+	local exact = artFolder:FindFirstChild(cardId)
+	if exact and exact:IsA("Decal") then
+		return exact
+	end
+
+	local target = string.lower(cardId)
+	for _, obj in ipairs(artFolder:GetChildren()) do
+		if obj:IsA("Decal") and string.lower(obj.Name) == target then
+			return obj
+		end
+	end
+
+	return nil
+end
+
+local function setupVisualCard(card, cardId, sizeX, sizeY)
+	local data = CardDatabase.GetCardData(cardId)
+	if not data then
+		return false
+	end
+
+	card.Size = UDim2.fromOffset(sizeX, sizeY)
+	card.BackgroundTransparency = 0.2
+	card.BackgroundColor3 = Color3.new(1, 1, 1)
+	card.Active = false
+
+	card.NameLabel.Text = data.Name
+	card.NameLabel.TextColor3 = Color3.new(1, 1, 1)
+	card.NameLabel.BackgroundTransparency = 1
+
+	card.AttackLabel.Text = "ATK: " .. CardDatabase.FormatAttack(data.Attack)
+	card.AttackLabel.TextColor3 = Color3.new(1, 0, 0)
+	card.AttackLabel.BackgroundTransparency = 1
+	card.AttackLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+	card.AttackLabel.TextStrokeTransparency = 0
+
+	card.NumberLabel.Text = ""
+	card.NumberLabel.TextColor3 = Color3.new(1, 1, 1)
+	card.NumberLabel.BackgroundTransparency = 1
+
+	local useStretchArt = data.ArtFitMode == "Stretch"
+	local imageObj = findCardArtDecal(cardId)
+	local videoAssetId = data and data.VideoAssetId
+	if type(videoAssetId) == "string" and videoAssetId ~= "" and videoAssetId ~= "rbxassetid://0" then
+		local artVideo = card:FindFirstChild("ArtVideo")
+		if not (artVideo and artVideo:IsA("VideoFrame")) then
+			if artVideo then
+				artVideo:Destroy()
+			end
+			artVideo = Instance.new("VideoFrame")
+			artVideo.Name = "ArtVideo"
+			artVideo.Size = UDim2.fromScale(1, 1)
+			artVideo.Position = UDim2.fromOffset(0, 0)
+			artVideo.BackgroundTransparency = 1
+			artVideo.BorderSizePixel = 0
+			artVideo.Parent = card
+		end
+		artVideo.ZIndex = card.ArtLabel.ZIndex
+		artVideo.Looped = true
+		local shouldRestart = (artVideo.Video ~= videoAssetId)
+		artVideo.Video = videoAssetId
+		artVideo.Visible = true
+		if shouldRestart then
+			artVideo.TimePosition = 0
+		end
+		artVideo.Playing = true
+		card.ArtLabel.Image = ""
+		card.ArtLabel.Visible = false
+	elseif imageObj and imageObj:IsA("Decal") then
+		if not useStretchArt then
+			local modeAttr = imageObj:GetAttribute("ArtFitMode")
+			if type(modeAttr) == "string" then
+				useStretchArt = string.lower(modeAttr) == "stretch"
+			else
+				useStretchArt = imageObj:GetAttribute("ForceStretch") == true or imageObj:GetAttribute("SquareArt") == true
+			end
+		end
+		card.ArtLabel.Image = imageObj.Texture
+		card.ArtLabel.Visible = true
+	elseif type(data.ArtAssetId) == "string" and data.ArtAssetId ~= "" and data.ArtAssetId ~= "rbxassetid://0" then
+		card.ArtLabel.Image = data.ArtAssetId
+		card.ArtLabel.Visible = true
+	else
+		card.ArtLabel.Image = ""
+		card.ArtLabel.Visible = true
+	end
+	local artVideo = card:FindFirstChild("ArtVideo")
+	if artVideo and artVideo:IsA("VideoFrame") and card.ArtLabel.Visible then
+		artVideo.Visible = false
+		artVideo.Playing = false
+	end
+	card.ArtLabel.ScaleType = useStretchArt and Enum.ScaleType.Stretch or Enum.ScaleType.Crop
+
+	applyAnimatedCardBorder(card, data.Rarity, cardId)
+	return true
+end
+
+local function disableGuiInteraction(guiObject)
+	if not guiObject then
+		return
+	end
+
+	local function disableOne(obj)
+		if not obj:IsA("GuiObject") then
+			return
+		end
+		obj.Active = false
+		obj.Selectable = false
+		pcall(function()
+			obj.Interactable = false
+		end)
+		if obj:IsA("GuiButton") then
+			obj.AutoButtonColor = false
+		end
+	end
+
+	disableOne(guiObject)
+	for _, child in ipairs(guiObject:GetDescendants()) do
+		disableOne(child)
+	end
+end
+
+local function ShowCardNotification(cardId, positionOverride, displayOrderOverride)
+	if not CardDatabase.GetCardData(cardId) then
+		return
+	end
+
+	-- Create a dedicated ScreenGui for notifications
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "CardNotificationGui"
+	screenGui.DisplayOrder = displayOrderOverride or AUTO_NOTIFICATION_DISPLAY_ORDER
+	screenGui.Parent = playerGui
+
+	-- Clone and setup notification card
+	local notificationCard = template:Clone()
+	notificationCard.Name = "CardNotification"
+	notificationCard.Size = UDim2.new(0, 0, 0, 0)  -- Start small for animation
+	notificationCard.Position = positionOverride or UDim2.fromScale(0.5, 0.5)
+	notificationCard.AnchorPoint = Vector2.new(0.5, 0.5)
+	notificationCard.BackgroundTransparency = 0.2  -- Slight background
+	notificationCard.BackgroundColor3 = Color3.new(1, 1, 1)  -- White background
+	notificationCard.ZIndex = 10  -- On top
+	notificationCard.Active = false  -- No interaction
+
+	if not setupVisualCard(notificationCard, cardId, NOTIFICATION_CARD_WIDTH, NOTIFICATION_CARD_HEIGHT) then
+		screenGui:Destroy()
+		return
+	end
+
+	disableGuiInteraction(notificationCard)
+
+	-- Parent to screen
+	notificationCard.Parent = screenGui
+	notificationCard.ZIndex = 10  -- On top
+
+	-- Animate in with bounce effect
+	local tweenInfo = TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(notificationCard, tweenInfo, {
+		Size = UDim2.fromOffset(NOTIFICATION_CARD_WIDTH, NOTIFICATION_CARD_HEIGHT)
+	})
+	tween:Play()
+
+	-- Auto-remove after 2 seconds with fade out
+	task.delay(1.4, function()  -- Start fade 0.6s before end
+		if notificationCard and notificationCard.Parent then
+			fadeOutNotificationCard(notificationCard, 0.6)
+			task.wait(0.6)
+			screenGui:Destroy()  -- Destroy the whole GUI
+		end
+	end)
+end
+
+boosterOpenVisualEvent.Event:Connect(function(payload)
+	if type(payload) == "table" and type(payload.cardIds) == "table" then
+		BoosterOpenSequence.Play(
+			payload.cardIds,
+			NOTIFICATION_CARD_WIDTH,
+			NOTIFICATION_CARD_HEIGHT,
+			ShowCardNotification,
+			0.09,
+			BOOSTER_NOTIFICATION_DISPLAY_ORDER
+		)
+		return
+	end
+
+	if type(payload) == "string" then
+		ShowCardNotification(payload, nil, BOOSTER_NOTIFICATION_DISPLAY_ORDER)
+	end
+end)
+
+idleEvent.Event:Connect(function(payload)
+	if type(payload) ~= "table" then
+		if type(payload) == "string" then
+			ShowCardNotification(payload)
+		end
+		return
+	end
+
+	if type(payload.cardIds) == "table" then
+		for _, cardId in ipairs(payload.cardIds) do
+			if type(cardId) == "string" and cardId ~= "" then
+				ShowCardNotification(cardId)
+			end
+		end
+	elseif type(payload.cardId) == "string" and payload.cardId ~= "" then
+		ShowCardNotification(payload.cardId)
+	end
+
+	local previousLevel = level
+	if type(payload.rollCount) == "number" then
+		rollCount = math.max(0, math.floor(payload.rollCount))
+	end
+	if type(payload.level) == "number" then
+		level = math.max(1, math.floor(payload.level))
+	else
+		level = math.floor(rollCount / 100) + 1
+	end
+
+	if level > previousLevel then
+		ShowLevelUpPopup(level)
+	end
+end)

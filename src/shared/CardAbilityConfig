@@ -1,0 +1,34 @@
+local CardAbilityConfig = {}
+
+CardAbilityConfig.Abilities = {
+    AttackSpeedBoost = {
+        EffectType = "TeamAttackSpeedBoost",
+        Magnitude = 0.35,
+        DurationSeconds = 5.0,
+        DefaultCooldownSeconds = 12,
+        Targeting = "AllAllies",
+    },
+    AttackDamageBoost = {
+        EffectType = "TeamAttackDamageBoost",
+        Magnitude = 0.5,
+        DurationSeconds = 5.0,
+        DefaultCooldownSeconds = 15,
+        Targeting = "AllAllies",
+    },
+    HealAlly = {
+        EffectType = "HealLowestAlly",
+        Magnitude = 0.3,
+        DurationSeconds = 0,
+        DefaultCooldownSeconds = 9,
+        Targeting = "LowestHealthAlly",
+    },
+}
+
+function CardAbilityConfig.GetAbility(abilityId)
+    if type(abilityId) ~= "string" or abilityId == "" then
+        return nil
+    end
+    return CardAbilityConfig.Abilities[abilityId]
+end
+
+return CardAbilityConfig

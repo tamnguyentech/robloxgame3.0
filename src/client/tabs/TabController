@@ -1,0 +1,110 @@
+local TabController = {}
+
+local ACTIVE_COLOR = Color3.fromRGB(60, 100, 170)
+local INACTIVE_COLOR = Color3.fromRGB(40, 40, 40)
+local TAB_WIDTH = 116
+local TAB_GAP = 8
+local HEADER_BUTTON_WIDTH = 108
+local HEADER_BUTTON_GAP = 8
+local HEADER_TO_TABS_GAP = 12
+
+local function createTabButton(tabBar, tabDef, index)
+	local button = Instance.new("ImageButton")
+	button.Name = tabDef.GetId() .. "Tab"
+	button.Size = UDim2.new(0, TAB_WIDTH, 1, 0)
+	button.Position = UDim2.fromOffset((TAB_WIDTH + TAB_GAP) * index, 0)
+	button.Image = tabDef.GetImage()
+	button.BackgroundColor3 = INACTIVE_COLOR
+	button.BorderSizePixel = 0
+	button.AutoButtonColor = true
+	button.Parent = tabBar
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Text = tabDef.GetLabel()
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.Font = Enum.Font.SciFi
+	label.TextSize = 18
+	label.Parent = button
+
+	return button
+end
+
+function TabController.Init(mainUI, inventoryFrame, tabDefs)
+	local existingBar = mainUI:FindFirstChild("InventoryTabBar")
+	if existingBar then
+		existingBar:Destroy()
+	end
+
+	local tabBar = Instance.new("Frame")
+	tabBar.Name = "InventoryTabBar"
+	tabBar.Size = UDim2.fromOffset((#tabDefs * TAB_WIDTH) + ((#tabDefs - 1) * TAB_GAP), 36)
+	tabBar.AnchorPoint = Vector2.new(0, 0)
+	tabBar.Position = UDim2.new(
+		inventoryFrame.Position.X.Scale,
+		inventoryFrame.Position.X.Offset + ((HEADER_BUTTON_WIDTH + HEADER_BUTTON_GAP) * 3) + HEADER_TO_TABS_GAP,
+		inventoryFrame.Position.Y.Scale,
+		inventoryFrame.Position.Y.Offset - 42
+	)
+	tabBar.BackgroundTransparency = 1
+	tabBar.Parent = mainUI
+
+	local state = {
+		tabBar = tabBar,
+		framesById = {},
+		buttonsById = {},
+		activeTabId = nil,
+		isVisible = true,
+	}
+
+	for i, tabDef in ipairs(tabDefs) do
+		local tabId = tabDef.GetId()
+		state.framesById[tabId] = tabDef.GetOrCreateFrame(mainUI, inventoryFrame)
+		state.buttonsById[tabId] = createTabButton(tabBar, tabDef, i - 1)
+	end
+
+	local function refreshVisibility()
+		state.tabBar.Visible = state.isVisible
+		for id, frame in pairs(state.framesById) do
+			frame.Visible = state.isVisible and (id == state.activeTabId)
+		end
+	end
+
+	local function setActive(tabId)
+		state.activeTabId = tabId
+		refreshVisibility()
+		for id, button in pairs(state.buttonsById) do
+			button.BackgroundColor3 = (id == tabId) and ACTIVE_COLOR or INACTIVE_COLOR
+		end
+	end
+
+	local function setVisible(isVisible)
+		state.isVisible = isVisible
+		refreshVisibility()
+	end
+
+	for id, button in pairs(state.buttonsById) do
+		button.MouseButton1Click:Connect(function()
+			setActive(id)
+		end)
+	end
+
+	if #tabDefs > 0 then
+		setActive(tabDefs[1].GetId())
+	end
+
+	return {
+		SetActive = setActive,
+		SetVisible = setVisible,
+		GetFrame = function(id)
+			return state.framesById[id]
+		end,
+		GetTabBar = function()
+			return state.tabBar
+		end,
+	}
+end
+
+return TabController

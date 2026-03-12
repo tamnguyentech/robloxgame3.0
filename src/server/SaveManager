@@ -1,0 +1,625 @@
+local DataStoreService = game:GetService("DataStoreService")
+local inventoryStore = DataStoreService:GetDataStore("PlayerInventoryV1")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+local Players = game:GetService("Players")
+local saveEvent = ReplicatedStorage:WaitForChild("SaveDataEvent")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+
+local SAVE_THROTTLE_SECONDS = 1
+local SAVE_FLUSH_INTERVAL_SECONDS = 8
+local MAX_COMBAT_SLOTS = 5
+local DATASTORE_MAX_BYTES = 4000000
+local DATASTORE_RETRY_COUNT = 3
+local DATASTORE_RETRY_DELAY_SECONDS = 0.4
+
+-- In-memory storage for player data
+local playerData = {}
+-- Rate limiting for saves
+local lastSave = {}
+local pendingSave = {}
+local dirtyPlayers = {}
+local warnedDataStoreUnavailable = false
+local loadingPlayers = {}
+
+local saveManagerBridge = ServerStorage:FindFirstChild("SaveManagerBridge")
+if saveManagerBridge and not saveManagerBridge:IsA("BindableFunction") then
+	saveManagerBridge:Destroy()
+	saveManagerBridge = nil
+end
+if not saveManagerBridge then
+	saveManagerBridge = Instance.new("BindableFunction")
+	saveManagerBridge.Name = "SaveManagerBridge"
+	saveManagerBridge.Parent = ServerStorage
+end
+
+local function isDataStoreUnavailableError(err)
+	local msg = string.lower(tostring(err or ""))
+	return string.find(msg, "501", 1, true) ~= nil
+		or string.find(msg, "not implemented", 1, true) ~= nil
+		or string.find(msg, "api services", 1, true) ~= nil
+		or string.find(msg, "datastore", 1, true) ~= nil and string.find(msg, "studio", 1, true) ~= nil
+end
+
+local function warnDataStoreError(prefix, playerName, err)
+	if isDataStoreUnavailableError(err) then
+		if not warnedDataStoreUnavailable then
+			warnedDataStoreUnavailable = true
+			warn("DataStore unavailable in current environment (commonly Studio/API setting). Using in-session fallback data.")
+		end
+		return
+	end
+	warn(prefix .. tostring(playerName) .. ": " .. tostring(err))
+end
+
+local function loadPlayerDataFromStore(userId, playerName)
+	local attempts = 0
+	local lastErr = nil
+
+	while attempts < DATASTORE_RETRY_COUNT do
+		attempts += 1
+		local ok, result = pcall(function()
+			return inventoryStore:GetAsync(userId)
+		end)
+		if ok then
+			return true, result
+		end
+
+		lastErr = result
+		if attempts < DATASTORE_RETRY_COUNT then
+			task.wait(DATASTORE_RETRY_DELAY_SECONDS)
+		end
+	end
+
+	warnDataStoreError("Failed to load data for player ", tostring(playerName or userId), lastErr)
+	return false, lastErr
+end
+
+local function savePlayerDataToStore(userId, data, playerName)
+	local attempts = 0
+	local lastErr = nil
+
+	while attempts < DATASTORE_RETRY_COUNT do
+		attempts += 1
+		local ok, err = pcall(function()
+			inventoryStore:UpdateAsync(userId, function(_old)
+				return data
+			end)
+		end)
+		if ok then
+			return true
+		end
+
+		lastErr = err
+		if attempts < DATASTORE_RETRY_COUNT then
+			task.wait(DATASTORE_RETRY_DELAY_SECONDS)
+		end
+	end
+
+	warnDataStoreError("Failed to save data for player ", tostring(playerName or userId), lastErr)
+	return false, lastErr
+end
+
+local function persistPlayerData(userId, playerName)
+	local data = playerData[userId]
+	if not data then
+		return
+	end
+	local success = savePlayerDataToStore(userId, data, playerName)
+	if not success then
+		dirtyPlayers[userId] = true
+		return
+	end
+	dirtyPlayers[userId] = nil
+end
+
+local tryPersistPlayerData
+tryPersistPlayerData = function(userId, playerName)
+	if not playerData[userId] then
+		pendingSave[userId] = nil
+		return
+	end
+
+	local now = tick()
+	local last = lastSave[userId]
+	if last and (now - last) < SAVE_THROTTLE_SECONDS then
+		if not pendingSave[userId] then
+			pendingSave[userId] = true
+			local waitTime = math.max(0.05, SAVE_THROTTLE_SECONDS - (now - last))
+			task.delay(waitTime, function()
+				pendingSave[userId] = nil
+				if dirtyPlayers[userId] then
+					tryPersistPlayerData(userId, playerName)
+				end
+			end)
+		end
+		return
+	end
+
+	lastSave[userId] = now
+	persistPlayerData(userId, playerName)
+end
+
+local function buildDefaultData()
+	return {
+		inventory = CardDatabase.GetDefaultInventory(),
+		combat = {},
+		rollCount = 0,
+		level = 1,
+		coins = 0,
+		boosterPacks = {},
+		items = {
+			AutoRoll2x20s = 0,
+		},
+	}
+end
+
+local function sanitizeNumberMap(valueTable)
+	local out = {}
+	if type(valueTable) ~= "table" then
+		return out
+	end
+	for key, value in pairs(valueTable) do
+		if type(key) == "string" and type(value) == "number" then
+			out[key] = math.max(0, math.floor(value))
+		end
+	end
+	return out
+end
+
+local function sanitizeInventoryList(cardList)
+	local out = {}
+	if type(cardList) ~= "table" then
+		return out
+	end
+	for _, cardRef in ipairs(cardList) do
+		if type(cardRef) == "string" then
+			local resolved = CardDatabase.ResolveCardIdStrict(cardRef)
+			if resolved then
+				table.insert(out, resolved)
+			end
+		end
+	end
+	return out
+end
+
+local function sanitizeCombatSlots(cardList, maxLen)
+	local out = {}
+	maxLen = math.max(1, math.floor(tonumber(maxLen) or 5))
+	if type(cardList) ~= "table" then
+		for i = 1, maxLen do
+			out[i] = ""
+		end
+		return out
+	end
+
+	for i = 1, maxLen do
+		local cardRef = cardList[i]
+		if type(cardRef) == "string" and cardRef ~= "" then
+			local resolved = CardDatabase.ResolveCardIdStrict(cardRef)
+			out[i] = resolved or ""
+		else
+			out[i] = ""
+		end
+	end
+
+	return out
+end
+
+local function isTranscendentUniqueCard(cardId)
+	if type(cardId) ~= "string" or cardId == "" then
+		return false
+	end
+	local data = CardDatabase.GetCardData(cardId)
+	return data ~= nil and data.Rarity == "Transcendent"
+end
+
+local function enforceUniqueTranscendentOwnership(inventoryList, combatList)
+	local seen = {}
+	local normalizedCombat = {}
+
+	for i, cardId in ipairs(combatList or {}) do
+		if type(cardId) == "string" and cardId ~= "" and isTranscendentUniqueCard(cardId) then
+			if seen[cardId] then
+				normalizedCombat[i] = ""
+			else
+				seen[cardId] = true
+				normalizedCombat[i] = cardId
+			end
+		else
+			normalizedCombat[i] = (type(cardId) == "string") and cardId or ""
+		end
+	end
+
+	local normalizedInventory = {}
+	for _, cardId in ipairs(inventoryList or {}) do
+		if type(cardId) == "string" and cardId ~= "" and isTranscendentUniqueCard(cardId) then
+			if not seen[cardId] then
+				seen[cardId] = true
+				table.insert(normalizedInventory, cardId)
+			end
+		elseif type(cardId) == "string" and cardId ~= "" then
+			table.insert(normalizedInventory, cardId)
+		end
+	end
+
+	return normalizedInventory, normalizedCombat
+end
+
+local function normalizeLoadedData(savedData)
+	local data = buildDefaultData()
+	if type(savedData) ~= "table" then
+		return data
+	end
+
+	if type(savedData.inventory) == "table" then
+		data.inventory = sanitizeInventoryList(savedData.inventory)
+	end
+	if type(savedData.combat) == "table" then
+		data.combat = sanitizeCombatSlots(savedData.combat, MAX_COMBAT_SLOTS)
+	end
+	if type(savedData.rollCount) == "number" then
+		data.rollCount = math.max(0, math.floor(savedData.rollCount))
+	end
+	if type(savedData.level) == "number" then
+		data.level = math.max(1, math.floor(savedData.level))
+	end
+	if type(savedData.coins) == "number" then
+		data.coins = math.max(0, math.floor(savedData.coins))
+	end
+	if type(savedData.boosterPacks) == "table" then
+		data.boosterPacks = sanitizeNumberMap(savedData.boosterPacks)
+	end
+	if type(savedData.items) == "table" then
+		data.items = sanitizeNumberMap(savedData.items)
+		data.items.AutoRoll2x20s = data.items.AutoRoll2x20s or 0
+	end
+
+	data.inventory, data.combat = enforceUniqueTranscendentOwnership(data.inventory, data.combat)
+
+	return data
+end
+
+local function cloneSaveState(data)
+	return {
+		inventory = data.inventory,
+		combat = data.combat,
+		rollCount = data.rollCount,
+		level = data.level,
+		coins = data.coins,
+		boosterPacks = data.boosterPacks,
+		items = data.items,
+	}
+end
+
+local function cloneNumberMap(valueTable)
+	local out = {}
+	for key, value in pairs(valueTable or {}) do
+		if type(key) == "string" and type(value) == "number" then
+			out[key] = value
+		end
+	end
+	return out
+end
+
+local function ensurePlayerDataLoaded(userId, playerName)
+	userId = tonumber(userId)
+	if not userId then
+		return nil
+	end
+
+	if playerData[userId] then
+		return playerData[userId]
+	end
+
+	while loadingPlayers[userId] do
+		task.wait()
+		if playerData[userId] then
+			return playerData[userId]
+		end
+	end
+
+	loadingPlayers[userId] = true
+
+	local loadedData
+	local ok, savedData = loadPlayerDataFromStore(userId, playerName)
+
+	if ok and type(savedData) == "table" then
+		loadedData = normalizeLoadedData(savedData)
+	else
+		loadedData = buildDefaultData()
+	end
+
+	playerData[userId] = loadedData
+	loadingPlayers[userId] = nil
+
+	return loadedData
+end
+
+local function buildOwnedCardCounts(inventoryList, combatList)
+	local counts = {}
+
+	for _, cardId in ipairs(inventoryList or {}) do
+		if type(cardId) == "string" and cardId ~= "" then
+			counts[cardId] = (counts[cardId] or 0) + 1
+		end
+	end
+
+	for _, cardId in ipairs(combatList or {}) do
+		if type(cardId) == "string" and cardId ~= "" then
+			counts[cardId] = (counts[cardId] or 0) + 1
+		end
+	end
+
+	return counts
+end
+
+local function getEconomyState(userId)
+	local current = playerData[userId] or ensurePlayerDataLoaded(userId, userId)
+	if not current then
+		return {
+			coins = 0,
+			boosterPacks = {},
+			items = {
+				AutoRoll2x20s = 0,
+			},
+		}
+	end
+
+	local items = cloneNumberMap(current.items)
+	items.AutoRoll2x20s = items.AutoRoll2x20s or 0
+
+	return {
+		coins = math.max(0, math.floor(tonumber(current.coins) or 0)),
+		boosterPacks = cloneNumberMap(current.boosterPacks),
+		items = items,
+		rollCount = math.max(0, math.floor(tonumber(current.rollCount) or 0)),
+		level = math.max(1, math.floor(tonumber(current.level) or 1)),
+	}
+end
+
+local function executeEconomyDelta(payload)
+	if type(payload) ~= "table" then
+		return false, "InvalidPayload"
+	end
+
+	local userId = tonumber(payload.userId)
+	if not userId then
+		return false, "InvalidUserId"
+	end
+
+	local current = playerData[userId] or ensurePlayerDataLoaded(userId, userId) or buildDefaultData()
+	current.inventory, current.combat = enforceUniqueTranscendentOwnership(current.inventory, current.combat)
+	current.boosterPacks = sanitizeNumberMap(current.boosterPacks)
+	current.items = sanitizeNumberMap(current.items)
+	current.items.AutoRoll2x20s = current.items.AutoRoll2x20s or 0
+
+	local coinsDelta = math.floor(tonumber(payload.coinsDelta) or 0)
+	local nextCoins = math.floor(tonumber(current.coins) or 0) + coinsDelta
+	if nextCoins < 0 then
+		return false, "InsufficientCoins"
+	end
+
+	local rollCountDelta = math.floor(tonumber(payload.rollCountDelta) or 0)
+	local nextRollCount = math.max(0, math.floor(tonumber(current.rollCount) or 0) + rollCountDelta)
+	local nextLevel = math.max(1, math.floor(nextRollCount / 100) + 1)
+
+	local rawPackDelta = (type(payload.boosterPacksDelta) == "table") and payload.boosterPacksDelta or {}
+	local packDelta = sanitizeNumberMap(rawPackDelta)
+	for packId, deltaAbs in pairs(rawPackDelta) do
+		if type(packId) == "string" and type(deltaAbs) == "number" then
+			local delta = math.floor(deltaAbs)
+			local currentCount = math.max(0, math.floor(tonumber(current.boosterPacks[packId]) or 0))
+			if (currentCount + delta) < 0 then
+				return false, "InsufficientBoosterPacks"
+			end
+			packDelta[packId] = delta
+		end
+	end
+
+	local rawItemDelta = (type(payload.itemsDelta) == "table") and payload.itemsDelta or {}
+	local itemDelta = sanitizeNumberMap(rawItemDelta)
+	for itemId, deltaAbs in pairs(rawItemDelta) do
+		if type(itemId) == "string" and type(deltaAbs) == "number" then
+			local delta = math.floor(deltaAbs)
+			local currentCount = math.max(0, math.floor(tonumber(current.items[itemId]) or 0))
+			if (currentCount + delta) < 0 then
+				return false, "InsufficientItems"
+			end
+			itemDelta[itemId] = delta
+		end
+	end
+
+	local ownedCounts = buildOwnedCardCounts(current.inventory, current.combat)
+	local grantedCards = {}
+	local skippedUniqueGrant = false
+	for _, cardRef in ipairs(payload.grantCards or {}) do
+		if type(cardRef) == "string" and cardRef ~= "" then
+			local resolved = CardDatabase.ResolveCardIdStrict(cardRef)
+			if resolved then
+				if isTranscendentUniqueCard(resolved) and (ownedCounts[resolved] or 0) >= 1 then
+					skippedUniqueGrant = true
+				else
+					ownedCounts[resolved] = (ownedCounts[resolved] or 0) + 1
+					table.insert(grantedCards, resolved)
+				end
+			end
+		end
+	end
+
+	if skippedUniqueGrant and #grantedCards == 0 and coinsDelta < 0 then
+		return false, "AlreadyOwnedUniqueCard"
+	end
+
+	current.coins = nextCoins
+	current.rollCount = nextRollCount
+	current.level = nextLevel
+
+	for packId, delta in pairs(packDelta) do
+		local nextCount = math.max(0, math.floor(tonumber(current.boosterPacks[packId]) or 0) + delta)
+		current.boosterPacks[packId] = nextCount
+	end
+
+	for itemId, delta in pairs(itemDelta) do
+		local nextCount = math.max(0, math.floor(tonumber(current.items[itemId]) or 0) + delta)
+		current.items[itemId] = nextCount
+	end
+	current.items.AutoRoll2x20s = current.items.AutoRoll2x20s or 0
+
+	for _, cardId in ipairs(grantedCards) do
+		table.insert(current.inventory, cardId)
+	end
+
+	playerData[userId] = current
+	dirtyPlayers[userId] = true
+	tryPersistPlayerData(userId, userId)
+
+	local economy = getEconomyState(userId)
+	economy.grantedCards = grantedCards
+	return true, economy
+end
+
+local function mergePlayerPatch(current, patch, playerName)
+	local merged = cloneSaveState(current)
+
+	if patch.inventory ~= nil then
+		if type(patch.inventory) ~= "table" then
+			return nil, "Invalid inventory data from " .. playerName
+		end
+		merged.inventory = sanitizeInventoryList(patch.inventory)
+	end
+
+	if patch.combat ~= nil then
+		if type(patch.combat) ~= "table" then
+			return nil, "Invalid combat data from " .. playerName
+		end
+		merged.combat = sanitizeCombatSlots(patch.combat, MAX_COMBAT_SLOTS)
+	end
+
+	if patch.inventory ~= nil or patch.combat ~= nil then
+		merged.inventory, merged.combat = enforceUniqueTranscendentOwnership(merged.inventory, merged.combat)
+
+		local currentOwned = buildOwnedCardCounts(current.inventory, current.combat)
+		local mergedOwned = buildOwnedCardCounts(merged.inventory, merged.combat)
+		for cardId, ownedCount in pairs(mergedOwned) do
+			if ownedCount > (currentOwned[cardId] or 0) then
+				return nil, "Card ownership inflation blocked for " .. playerName .. " on card " .. tostring(cardId)
+			end
+		end
+	end
+
+	if patch.coins ~= nil then
+		if type(patch.coins) ~= "number" then
+			return nil, "Invalid coin data from " .. playerName
+		end
+		merged.coins = math.max(0, math.floor(patch.coins))
+	end
+
+	-- Roll count/level progression is server-authoritative and intentionally
+	-- ignored from client save patches.
+
+	-- Booster/item ownership is server-authoritative and intentionally
+	-- ignored from client save patches.
+
+	return merged
+end
+
+saveManagerBridge.OnInvoke = function(action, payload)
+	if action == "GetEconomyState" then
+		local userId = tonumber(payload)
+		if not userId then
+			return false, "InvalidUserId"
+		end
+		return true, getEconomyState(userId)
+	end
+
+	if action == "ExecuteEconomyDelta" then
+		return executeEconomyDelta(payload)
+	end
+
+	return false, "UnsupportedBridgeAction"
+end
+
+saveEvent.OnServerEvent:Connect(function(player, data)
+	if data == "RequestLoad" then
+		local loadedData = ensurePlayerDataLoaded(player.UserId, player.Name) or buildDefaultData()
+		saveEvent:FireClient(player, loadedData)
+
+	elseif type(data) == "table" then
+		local current = playerData[player.UserId] or ensurePlayerDataLoaded(player.UserId, player.Name) or buildDefaultData()
+		local merged, mergeErr = mergePlayerPatch(current, data, player.Name)
+		if not merged then
+			warn(mergeErr)
+			return
+		end
+
+		-- Check data size (4MB limit)
+		local dataSize = #HttpService:JSONEncode(merged)
+		if dataSize > DATASTORE_MAX_BYTES then
+			warn("Data too large for player " .. player.Name .. " (" .. dataSize .. " bytes)")
+			return
+		end
+
+		-- Always keep latest state in memory, even when DataStore write is throttled.
+		playerData[player.UserId] = merged
+		dirtyPlayers[player.UserId] = true
+
+		-- Persist immediately when possible, otherwise queue a delayed write.
+		tryPersistPlayerData(player.UserId, player.Name)
+	end
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	ensurePlayerDataLoaded(player.UserId, player.Name)
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do
+	task.spawn(function()
+		ensurePlayerDataLoaded(player.UserId, player.Name)
+	end)
+end
+
+task.spawn(function()
+	while true do
+		task.wait(SAVE_FLUSH_INTERVAL_SECONDS)
+		for userId in pairs(dirtyPlayers) do
+			if playerData[userId] then
+				tryPersistPlayerData(userId, userId)
+			else
+				dirtyPlayers[userId] = nil
+			end
+		end
+	end
+end)
+
+-- Save data when player leaves
+game.Players.PlayerRemoving:Connect(function(player)
+	local data = playerData[player.UserId]
+	if data then
+		pendingSave[player.UserId] = nil
+		local success = savePlayerDataToStore(player.UserId, data, player.Name)
+		if not success and not RunService:IsStudio() then
+			warn("Failed final save for player " .. player.Name)
+		end
+		dirtyPlayers[player.UserId] = nil
+		playerData[player.UserId] = nil
+	end
+	loadingPlayers[player.UserId] = nil
+end)
+
+game:BindToClose(function()
+	for _, player in ipairs(Players:GetPlayers()) do
+		local userId = player.UserId
+		local data = playerData[userId]
+		if data then
+			pendingSave[userId] = nil
+			local success = savePlayerDataToStore(userId, data, player.Name)
+			if not success and not RunService:IsStudio() then
+				warn("Failed shutdown save for player " .. player.Name)
+			end
+			dirtyPlayers[userId] = nil
+		end
+	end
+end)

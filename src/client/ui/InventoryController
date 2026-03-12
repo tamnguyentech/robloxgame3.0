@@ -1,0 +1,2007 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ContentProvider = game:GetService("ContentProvider")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Player = game.Players.LocalPlayer
+local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local RarityConfig = require(script.Parent:WaitForChild("RarityConfig"))
+
+local artFolder = ReplicatedStorage:WaitForChild("CardArt")
+local mainUI = Player.PlayerGui:WaitForChild("MainUI")  -- Adjust "MainUI" to your ScreenGui name
+
+local function getOrCreateHoverVideoPreviewActiveValue()
+	local valueObj = ReplicatedStorage:FindFirstChild("HoverVideoPreviewActive")
+	if not (valueObj and valueObj:IsA("BoolValue")) then
+		if valueObj then
+			valueObj:Destroy()
+		end
+		valueObj = Instance.new("BoolValue")
+		valueObj.Name = "HoverVideoPreviewActive"
+		valueObj.Value = false
+		valueObj.Parent = ReplicatedStorage
+	end
+	return valueObj
+end
+
+local hoverVideoPreviewActiveValue = getOrCreateHoverVideoPreviewActiveValue()
+
+local function getOrCreateDeckFrame(frameName, fallbackPosition)
+	local existing = mainUI:FindFirstChild(frameName)
+	if existing and existing:IsA("ScrollingFrame") then
+		return existing
+	end
+	if existing then
+		existing:Destroy()
+	end
+
+	local frame = Instance.new("ScrollingFrame")
+	frame.Name = frameName
+	frame.Size = UDim2.fromOffset(760, 320)
+	frame.Position = fallbackPosition
+	frame.AnchorPoint = Vector2.new(0, 0)
+	frame.BackgroundColor3 = Color3.fromRGB(24, 24, 24)
+	frame.BackgroundTransparency = 0.08
+	frame.BorderSizePixel = 0
+	frame.ScrollBarThickness = 8
+	frame.CanvasSize = UDim2.fromOffset(0, 0)
+	frame.Visible = false
+	frame.ZIndex = 2
+	frame.ClipsDescendants = true
+	frame.Parent = mainUI
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 2
+	stroke.Transparency = 0.25
+	stroke.Color = Color3.fromRGB(85, 85, 85)
+	stroke.Parent = frame
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = frame
+
+	return frame
+end
+
+local inventoryFrame = getOrCreateDeckFrame("InventoryFrame", UDim2.fromOffset(190, 20))
+local combatDeckFrame = getOrCreateDeckFrame("CombatDeckFrame", UDim2.fromOffset(190, 360))
+
+local COMBAT_MAX_UNIQUE = 5
+local COMBAT_SLOT_PADDING = 10
+local COMBAT_SLOT_GAP = 10
+local COMBAT_CARD_WIDTH = 140
+local COMBAT_CARD_HEIGHT = 210
+local COMBAT_SLOT_PREFIX = "CombatSlot"
+
+combatDeckFrame.Size = UDim2.fromOffset(760, 230)
+combatDeckFrame.Position = UDim2.fromOffset(190, 360)
+
+local function ensureDeckTitleLabel(frame, labelName, text, accentColor)
+	local label = mainUI:FindFirstChild(labelName)
+	if not (label and label:IsA("TextLabel")) then
+		if label then
+			label:Destroy()
+		end
+		label = Instance.new("TextLabel")
+		label.Name = labelName
+		label.AnchorPoint = Vector2.new(1, 0)
+		label.Size = UDim2.fromOffset(170, 34)
+		label.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
+		label.BackgroundTransparency = 0.2
+		label.BorderSizePixel = 0
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		label.TextYAlignment = Enum.TextYAlignment.Center
+		label.TextColor3 = Color3.fromRGB(235, 240, 248)
+		label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+		label.TextStrokeTransparency = 0
+		label.Font = Enum.Font.Fantasy
+		label.TextSize = 22
+		label.Text = text
+		label.Parent = mainUI
+
+		local padding = Instance.new("UIPadding")
+		padding.PaddingLeft = UDim.new(0, 12)
+		padding.Parent = label
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 8)
+		corner.Parent = label
+
+		local accent = Instance.new("Frame")
+		accent.Name = "FrameConnector"
+		accent.AnchorPoint = Vector2.new(0, 0.5)
+		accent.Size = UDim2.fromOffset(10, 20)
+		accent.Position = UDim2.fromScale(1, 0.5)
+		accent.BackgroundColor3 = accentColor
+		accent.BackgroundTransparency = 0.08
+		accent.BorderSizePixel = 0
+		accent.ZIndex = label.ZIndex + 1
+		accent.Parent = label
+
+		local accentCorner = Instance.new("UICorner")
+		accentCorner.CornerRadius = UDim.new(0, 4)
+		accentCorner.Parent = accent
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 2
+		stroke.Transparency = 0.08
+		stroke.Color = accentColor
+		stroke.Parent = label
+	end
+
+	label.Text = text
+
+	local function syncLabelToFrame()
+		if not (frame and frame.Parent and label and label.Parent) then
+			return
+		end
+		label.Position = UDim2.new(
+			frame.Position.X.Scale,
+			frame.Position.X.Offset - 12,
+			frame.Position.Y.Scale,
+			frame.Position.Y.Offset + 6
+		)
+		label.Visible = frame.Visible
+		label.ZIndex = math.max(1, frame.ZIndex + 3)
+		local stroke = label:FindFirstChildOfClass("UIStroke")
+		if stroke then
+			stroke.Color = accentColor
+		end
+		local accent = label:FindFirstChild("FrameConnector")
+		if accent and accent:IsA("Frame") then
+			accent.BackgroundColor3 = accentColor
+			accent.ZIndex = label.ZIndex + 1
+		end
+	end
+
+	syncLabelToFrame()
+	frame:GetPropertyChangedSignal("Visible"):Connect(syncLabelToFrame)
+	frame:GetPropertyChangedSignal("Position"):Connect(syncLabelToFrame)
+	frame:GetPropertyChangedSignal("ZIndex"):Connect(syncLabelToFrame)
+
+	return label
+end
+
+ensureDeckTitleLabel(inventoryFrame, "InventoryDeckLabel", "Inventory Deck", Color3.fromRGB(80, 150, 255))
+ensureDeckTitleLabel(combatDeckFrame, "CombatDeckLabel", "Combat Deck", Color3.fromRGB(255, 120, 80))
+
+local currentRollCount = 0
+local currentLevel = 1
+local hasLoadedSaveData = false
+local pendingSaveAfterLoad = false
+local saveEvent = ReplicatedStorage:WaitForChild("SaveDataEvent")
+local template = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("CardTemplate"):WaitForChild("Card")
+local updateProgressStatsDisplay = nil
+local getOrCreateIntValue
+local getOrCreateBoolValue
+local getOrCreateBindableEvent
+local getCurrencyValueObject
+local getAutoRollOwnedValueObject
+local findCardArtDecal
+
+local CARD_NAME_FONT = Enum.Font.Fantasy
+local CARD_STAT_FONT = Enum.Font.Arcade
+local CARD_META_FONT = Enum.Font.SciFi
+
+-- Replace these placeholders with your own image asset IDs later.
+local INVENTORY_BG_IMAGE = "rbxassetid://0"
+local COMBAT_BG_IMAGE = "rbxassetid://0"
+
+local function hasUsableBackgroundImage(imageId)
+	return type(imageId) == "string" and imageId ~= "" and imageId ~= "rbxassetid://0"
+end
+
+-- BindableEvent for card gains from idle roll and booster openings
+local idleEvent = ReplicatedStorage:FindFirstChild("IdleCardEvent")
+if not idleEvent then
+	idleEvent = Instance.new("BindableEvent")
+	idleEvent.Name = "IdleCardEvent"
+	idleEvent.Parent = ReplicatedStorage
+end
+
+local tabsFolder = script.Parent:WaitForChild("tabs")
+local uiFolder = script.Parent:WaitForChild("ui")
+local TabController = require(tabsFolder:WaitForChild("TabController"))
+local CardsTab = require(tabsFolder:WaitForChild("CardsTab"))
+local ItemsTab = require(tabsFolder:WaitForChild("ItemsTab"))
+local BoosterPacksTab = require(tabsFolder:WaitForChild("BoosterPacksTab"))
+local HoverPreview = require(uiFolder:WaitForChild("HoverPreview"))
+local BoosterPackSystem = require(script.Parent:WaitForChild("BoosterPackSystem"))
+
+local tabController = TabController.Init(mainUI, inventoryFrame, {
+	CardsTab,
+	ItemsTab,
+	BoosterPacksTab,
+})
+tabController.SetActive("Cards")
+
+local function getPreviewRarityColor(rarity)
+	return RarityConfig.GetPreviewRarityColor(rarity)
+end
+
+local function getBorderPulseScale(rarity)
+	return RarityConfig.GetBorderPulseScale(rarity)
+end
+
+local hoverPreview = HoverPreview.Init(mainUI, artFolder, {
+	stripImage = "rbxassetid://137460001724797",
+	stripThickness = 20,
+	stripOverdraw = 8,
+	stripTileSize = 26,
+	stripTransparency = 0.2,
+	stripScrollSpeed = 0.6,
+})
+
+local function buildBorderGradient(baseColor)
+	return RarityConfig.BuildBorderGradient(baseColor)
+end
+
+local function applyBeliodusShadowParticles(card)
+	if not card or card:GetAttribute("HasBeliodusShadowAura") then
+		return
+	end
+	card:SetAttribute("HasBeliodusShadowAura", true)
+
+	local aura = card:FindFirstChild("BeliodusShadowAura")
+	if not aura then
+		aura = Instance.new("Frame")
+		aura.Name = "BeliodusShadowAura"
+		aura.Size = UDim2.new(1, 36, 1, 36)
+		aura.Position = UDim2.fromOffset(-18, -18)
+		aura.BackgroundTransparency = 1
+		aura.BorderSizePixel = 0
+		aura.ClipsDescendants = false
+		aura.ZIndex = math.max(10, card.ZIndex + 4)
+		aura.Parent = card
+	end
+	aura.Active = false
+	aura.Selectable = false
+	pcall(function()
+		aura.Interactable = false
+	end)
+
+	task.spawn(function()
+		while aura.Parent and card.Parent do
+			for _ = 1, 2 do
+				local particle = Instance.new("Frame")
+				particle.Name = "ShadowParticle"
+				particle.AnchorPoint = Vector2.new(0.5, 0.5)
+				local startX = math.random(4, math.max(5, aura.AbsoluteSize.X - 4))
+				local startY = math.random(4, math.max(5, aura.AbsoluteSize.Y - 4))
+				local sizePx = math.random(4, 10)
+				particle.Size = UDim2.fromOffset(sizePx, sizePx)
+				particle.Position = UDim2.fromOffset(startX, startY)
+				particle.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+				particle.BackgroundTransparency = 0.2 + (math.random() * 0.25)
+				particle.BorderSizePixel = 0
+				particle.ZIndex = aura.ZIndex
+				particle.Parent = aura
+				particle.Active = false
+				particle.Selectable = false
+				pcall(function()
+					particle.Interactable = false
+				end)
+
+				local particleCorner = Instance.new("UICorner")
+				particleCorner.CornerRadius = UDim.new(1, 0)
+				particleCorner.Parent = particle
+
+				local rise = math.random(20, 44)
+				local drift = math.random(-26, 26)
+				local t = 0.65 + (math.random() * 0.55)
+				TweenService:Create(
+					particle,
+					TweenInfo.new(t, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+					{
+						Position = UDim2.fromOffset(startX + drift, startY - rise),
+						BackgroundTransparency = 1,
+						Size = UDim2.fromOffset(sizePx + 2, sizePx + 2),
+					}
+				):Play()
+
+				task.delay(t + 0.05, function()
+					if particle and particle.Parent then
+						particle:Destroy()
+					end
+				end)
+			end
+
+			task.wait(0.055)
+		end
+	end)
+end
+
+local function applyAnimatedCardBorder(card, rarity, cardId)
+	if not card or card:GetAttribute("HasAnimatedBorder") then
+		return
+	end
+	card:SetAttribute("HasAnimatedBorder", true)
+
+	local isBeliodus = (cardId == "BeliodusX") or (card and card.Name == "BeliodusX")
+	local isGodRarity = rarity == "God" or rarity == "Transcendent"
+	local borderColor = isBeliodus and Color3.fromRGB(8, 8, 8) or getPreviewRarityColor(rarity)
+	local pulseScale = getBorderPulseScale(rarity)
+	if isBeliodus then
+		pulseScale = math.max(pulseScale, 1.7)
+	elseif isGodRarity then
+		pulseScale = math.max(pulseScale, 1.5)
+	end
+
+	local borderStroke = card:FindFirstChild("CardBorderStroke")
+	if not borderStroke then
+		borderStroke = Instance.new("UIStroke")
+		borderStroke.Name = "CardBorderStroke"
+		borderStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		borderStroke.Thickness = 3.4
+		borderStroke.Transparency = 0.18
+		borderStroke.Parent = card
+	end
+	borderStroke.Color = borderColor
+
+	local borderGradient = borderStroke:FindFirstChild("CardBorderGradient")
+	if not borderGradient then
+		borderGradient = Instance.new("UIGradient")
+		borderGradient.Name = "CardBorderGradient"
+		borderGradient.Parent = borderStroke
+	end
+	borderGradient.Color = buildBorderGradient(borderColor)
+	borderGradient.Rotation = 0
+
+	local glowFrame = card:FindFirstChild("CardBorderGlow")
+	if not glowFrame then
+		glowFrame = Instance.new("Frame")
+		glowFrame.Name = "CardBorderGlow"
+		glowFrame.BackgroundTransparency = 1
+		glowFrame.BorderSizePixel = 0
+		glowFrame.Size = UDim2.new(1, 10, 1, 10)
+		glowFrame.Position = UDim2.fromOffset(-5, -5)
+		glowFrame.ZIndex = card.ZIndex
+		glowFrame.Parent = card
+
+		local glowCorner = Instance.new("UICorner")
+		glowCorner.CornerRadius = UDim.new(0, 10)
+		glowCorner.Parent = glowFrame
+	end
+
+	local glowStroke = glowFrame:FindFirstChild("GlowStroke")
+	if not glowStroke then
+		glowStroke = Instance.new("UIStroke")
+		glowStroke.Name = "GlowStroke"
+		glowStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		glowStroke.Thickness = 6.6
+		glowStroke.Transparency = 0.72
+		glowStroke.Parent = glowFrame
+	end
+	glowStroke.Color = borderColor
+
+	local glowGradient = glowStroke:FindFirstChild("GlowGradient")
+	if not glowGradient then
+		glowGradient = Instance.new("UIGradient")
+		glowGradient.Name = "GlowGradient"
+		glowGradient.Parent = glowStroke
+	end
+	glowGradient.Color = buildBorderGradient(borderColor)
+	glowGradient.Rotation = 0
+
+	TweenService:Create(
+		borderStroke,
+		TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{
+			Thickness = 4.2 * pulseScale,
+			Transparency = 0.03,
+		}
+	):Play()
+
+	TweenService:Create(
+		glowStroke,
+		TweenInfo.new(1.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{
+			Thickness = 7.8 * pulseScale,
+			Transparency = 0.84,
+		}
+	):Play()
+
+	TweenService:Create(
+		borderGradient,
+		TweenInfo.new(2.6, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, false),
+		{Rotation = 360}
+	):Play()
+
+	TweenService:Create(
+		glowGradient,
+		TweenInfo.new(3.4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, false),
+		{Rotation = -360}
+	):Play()
+
+	if isBeliodus or isGodRarity then
+		applyBeliodusShadowParticles(card)
+	end
+end
+
+local function showHoverPreview(cardId)
+	local data = CardDatabase.GetCardData(cardId)
+	if not data then
+		return
+	end
+	local rarityColor = getPreviewRarityColor(data.Rarity)
+	hoverPreview.Show(cardId, data, rarityColor)
+end
+
+local function hideHoverPreview(delaySeconds)
+	hoverPreview.Hide(delaySeconds)
+end
+
+local function ensureDeckBackground(frame, decorName, imageId, tintColor)
+	local bg = mainUI:FindFirstChild(decorName)
+	if not bg then
+		bg = Instance.new("ImageLabel")
+		bg.Name = decorName
+		bg.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+		bg.BackgroundTransparency = 0.12
+		bg.BorderSizePixel = 0
+		bg.ScaleType = Enum.ScaleType.Crop
+		bg.ImageTransparency = 1
+		bg.Parent = mainUI
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 10)
+		corner.Parent = bg
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 2
+		stroke.Color = tintColor
+		stroke.Transparency = 0.15
+		stroke.Parent = bg
+
+		local gradient = Instance.new("UIGradient")
+		gradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(55, 55, 55)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 20)),
+		})
+		gradient.Rotation = 90
+		gradient.Parent = bg
+	end
+
+	local useImage = hasUsableBackgroundImage(imageId)
+	bg.Image = useImage and imageId or ""
+	bg.ImageTransparency = useImage and 0.2 or 1
+	bg.ZIndex = math.max(0, frame.ZIndex - 1)
+	bg.Size = frame.Size
+	bg.Position = frame.Position
+	bg.AnchorPoint = frame.AnchorPoint
+	bg.Visible = frame.Visible
+
+	return bg
+end
+
+local function setupDeckBackgroundSync(frame, decorName, imageId, tintColor)
+	local function sync()
+		-- Keep deck frame above decorative background layer.
+		if frame.ZIndex < 2 then
+			frame.ZIndex = 2
+		end
+		ensureDeckBackground(frame, decorName, imageId, tintColor)
+		if frame == combatDeckFrame then
+			local overlay = mainUI:FindFirstChild("CombatSlotOverlay")
+			if not (overlay and overlay:IsA("Frame")) then
+				overlay = Instance.new("Frame")
+				overlay.Name = "CombatSlotOverlay"
+				overlay.BackgroundTransparency = 1
+				overlay.BorderSizePixel = 0
+				overlay.Parent = mainUI
+
+				for i = 1, COMBAT_MAX_UNIQUE - 1 do
+					local line = Instance.new("Frame")
+					line.Name = "SlotLine" .. tostring(i)
+					line.AnchorPoint = Vector2.new(0.5, 0)
+					line.Size = UDim2.new(0, 2, 1, -18)
+					line.BackgroundColor3 = Color3.fromRGB(230, 125, 125)
+					line.BackgroundTransparency = 0.45
+					line.BorderSizePixel = 0
+					line.Parent = overlay
+				end
+			end
+
+			overlay.Size = frame.Size
+			overlay.Position = frame.Position
+			overlay.AnchorPoint = frame.AnchorPoint
+			overlay.ZIndex = frame.ZIndex + 1
+			overlay.Visible = frame.Visible
+
+			for i = 1, COMBAT_MAX_UNIQUE - 1 do
+				local line = overlay:FindFirstChild("SlotLine" .. tostring(i))
+				if line and line:IsA("Frame") then
+					local x = COMBAT_SLOT_PADDING + (COMBAT_CARD_WIDTH * i) + (COMBAT_SLOT_GAP * (i - 1)) + math.floor(COMBAT_SLOT_GAP * 0.5)
+					line.Position = UDim2.fromOffset(x, 9)
+					line.ZIndex = overlay.ZIndex + 1
+				end
+			end
+		end
+	end
+
+	frame:GetPropertyChangedSignal("Visible"):Connect(sync)
+	frame:GetPropertyChangedSignal("Position"):Connect(sync)
+	frame:GetPropertyChangedSignal("Size"):Connect(sync)
+	frame:GetPropertyChangedSignal("ZIndex"):Connect(sync)
+	sync()
+end
+
+setupDeckBackgroundSync(inventoryFrame, "InventoryDeckBackground", INVENTORY_BG_IMAGE, Color3.fromRGB(74, 130, 225))
+setupDeckBackgroundSync(combatDeckFrame, "CombatDeckBackground", COMBAT_BG_IMAGE, Color3.fromRGB(225, 88, 88))
+
+local function SyncTabsWithDeckToggle()
+	local isOpen = inventoryFrame.Visible or combatDeckFrame.Visible
+	tabController.SetVisible(isOpen)
+end
+
+inventoryFrame:GetPropertyChangedSignal("Visible"):Connect(SyncTabsWithDeckToggle)
+combatDeckFrame:GetPropertyChangedSignal("Visible"):Connect(SyncTabsWithDeckToggle)
+SyncTabsWithDeckToggle()
+
+local function SetCardStackVisual(card, parentFrame)
+	if not card or not card:FindFirstChild("NumberLabel") then return end
+	card.NumberLabel.Visible = (parentFrame == inventoryFrame)
+end
+
+local function resolveArtScaleType(cardId, data)
+	if type(cardId) ~= "string" or cardId == "" then
+		return Enum.ScaleType.Fit
+	end
+
+	local cardData = data or CardDatabase.GetCardData(cardId)
+	if cardData and cardData.ArtFitMode == "Stretch" then
+		return Enum.ScaleType.Stretch
+	end
+	if cardData and cardData.ArtFitMode == "Crop" then
+		return Enum.ScaleType.Crop
+	end
+	if cardData and cardData.ArtFitMode == "Fit" then
+		return Enum.ScaleType.Fit
+	end
+
+	local imageObj = findCardArtDecal(cardId)
+	if imageObj then
+		local modeAttr = imageObj:GetAttribute("ArtFitMode")
+		if type(modeAttr) == "string" then
+			local normalized = string.lower(modeAttr)
+			if normalized == "stretch" then
+				return Enum.ScaleType.Stretch
+			end
+			if normalized == "crop" then
+				return Enum.ScaleType.Crop
+			end
+			return Enum.ScaleType.Fit
+		end
+		if imageObj:GetAttribute("ForceStretch") == true then
+			return Enum.ScaleType.Stretch
+		end
+		if imageObj:GetAttribute("SquareArt") == true then
+			return Enum.ScaleType.Stretch
+		end
+	end
+
+	return Enum.ScaleType.Fit
+end
+
+local function applyCardArtScale(card, cardId, data)
+	if not (card and card:FindFirstChild("ArtLabel")) then
+		return
+	end
+	card.ArtLabel.ScaleType = resolveArtScaleType(cardId, data)
+end
+
+local preloadedVideoAssets = {}
+local trackedVideoFrames = {}
+local lastVideoTimePosition = {}
+local VIDEO_LOOP_START_OFFSET_SECONDS = 1.0
+
+local function ensureVideoFramePlayback(videoFrame, videoAssetId)
+	if not (videoFrame and videoFrame:IsA("VideoFrame")) then
+		return
+	end
+	trackedVideoFrames[videoFrame] = true
+
+	if not preloadedVideoAssets[videoAssetId] then
+		preloadedVideoAssets[videoAssetId] = true
+		task.spawn(function()
+			pcall(function()
+				ContentProvider:PreloadAsync({videoAssetId})
+			end)
+		end)
+	end
+
+	local shouldRestart = (videoFrame.Video ~= videoAssetId)
+	videoFrame.Looped = true
+	videoFrame.Video = videoAssetId
+	videoFrame.Visible = true
+	if shouldRestart then
+		videoFrame.TimePosition = VIDEO_LOOP_START_OFFSET_SECONDS
+	end
+	videoFrame.Playing = (hoverVideoPreviewActiveValue.Value ~= true)
+
+	-- Re-assert playback after layout/content settle; bursts of UI creation can otherwise stall autoplay.
+	task.defer(function()
+		if videoFrame.Parent and videoFrame.Visible and videoFrame.Video == videoAssetId and hoverVideoPreviewActiveValue.Value ~= true then
+			videoFrame.Playing = true
+		end
+	end)
+	task.delay(0.15, function()
+		if videoFrame.Parent and videoFrame.Visible and videoFrame.Video == videoAssetId and hoverVideoPreviewActiveValue.Value ~= true then
+			videoFrame.Playing = true
+		end
+	end)
+end
+
+local playbackGuardAccumulator = 0
+RunService.Heartbeat:Connect(function(dt)
+	playbackGuardAccumulator += dt
+	if playbackGuardAccumulator < 0.2 then
+		return
+	end
+	playbackGuardAccumulator = 0
+
+	for videoFrame in pairs(trackedVideoFrames) do
+		if not videoFrame.Parent then
+			trackedVideoFrames[videoFrame] = nil
+			lastVideoTimePosition[videoFrame] = nil
+		elseif videoFrame.Visible and videoFrame.Video ~= "" and videoFrame.Video ~= "rbxassetid://0" then
+			videoFrame.Looped = true
+			if hoverVideoPreviewActiveValue.Value == true then
+				if videoFrame.Playing then
+					videoFrame.Playing = false
+				end
+			elseif not videoFrame.Playing then
+				videoFrame.Playing = true
+			end
+
+			local currentPos = tonumber(videoFrame.TimePosition) or 0
+			local lastPos = lastVideoTimePosition[videoFrame]
+			if lastPos and currentPos + 0.03 < lastPos and currentPos < VIDEO_LOOP_START_OFFSET_SECONDS then
+				videoFrame.TimePosition = VIDEO_LOOP_START_OFFSET_SECONDS
+				currentPos = VIDEO_LOOP_START_OFFSET_SECONDS
+			end
+			lastVideoTimePosition[videoFrame] = currentPos
+		end
+	end
+end)
+
+hoverVideoPreviewActiveValue:GetPropertyChangedSignal("Value"):Connect(function()
+	local shouldPlay = hoverVideoPreviewActiveValue.Value ~= true
+	for videoFrame in pairs(trackedVideoFrames) do
+		if videoFrame.Parent and videoFrame.Visible and videoFrame.Video ~= "" and videoFrame.Video ~= "rbxassetid://0" then
+			videoFrame.Playing = shouldPlay
+		end
+	end
+end)
+
+local function applyCardArtVisual(card, cardId, data)
+	if not (card and card:FindFirstChild("ArtLabel")) then
+		return
+	end
+
+	local artLabel = card.ArtLabel
+	local videoAssetId = data and data.VideoAssetId
+	if type(videoAssetId) == "string" and videoAssetId ~= "" and videoAssetId ~= "rbxassetid://0" then
+		local video = card:FindFirstChild("ArtVideo")
+		if not (video and video:IsA("VideoFrame")) then
+			if video then
+				video:Destroy()
+			end
+			video = Instance.new("VideoFrame")
+			video.Name = "ArtVideo"
+			video.Size = UDim2.fromScale(1, 1)
+			video.Position = UDim2.fromOffset(0, 0)
+			video.BackgroundTransparency = 1
+			video.BorderSizePixel = 0
+			video.Parent = card
+		end
+
+		video.ZIndex = artLabel.ZIndex
+		ensureVideoFramePlayback(video, videoAssetId)
+		artLabel.Image = ""
+		artLabel.Visible = false
+		return
+	end
+
+	local video = card:FindFirstChild("ArtVideo")
+	if video and video:IsA("VideoFrame") then
+		video.Visible = false
+		video.Playing = false
+	end
+
+	artLabel.Visible = true
+	artLabel.Image = ""
+	local imageObj = findCardArtDecal(cardId)
+	if imageObj then
+		artLabel.Image = imageObj.Texture
+	elseif data and type(data.ArtAssetId) == "string" and data.ArtAssetId ~= "" and data.ArtAssetId ~= "rbxassetid://0" then
+		artLabel.Image = data.ArtAssetId
+	end
+	applyCardArtScale(card, cardId, data)
+end
+
+local function getCombatSlotName(slotIndex)
+	return COMBAT_SLOT_PREFIX .. tostring(slotIndex)
+end
+
+local function getCombatSlot(slotIndex)
+	local slot = combatDeckFrame:FindFirstChild(getCombatSlotName(slotIndex))
+	if slot and slot:IsA("Frame") then
+		return slot
+	end
+	return nil
+end
+
+local function ensureCombatSlots()
+	for i = 1, COMBAT_MAX_UNIQUE do
+		local slot = getCombatSlot(i)
+		if not slot then
+			slot = Instance.new("Frame")
+			slot.Name = getCombatSlotName(i)
+			slot.BackgroundColor3 = Color3.fromRGB(28, 18, 18)
+			slot.BackgroundTransparency = 0.5
+			slot.BorderSizePixel = 0
+			slot.ZIndex = combatDeckFrame.ZIndex + 1
+			slot.Parent = combatDeckFrame
+
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(0, 8)
+			corner.Parent = slot
+
+			local stroke = Instance.new("UIStroke")
+			stroke.Thickness = 1
+			stroke.Transparency = 0.35
+			stroke.Color = Color3.fromRGB(235, 125, 125)
+			stroke.Parent = slot
+		end
+
+		slot.Size = UDim2.fromOffset(COMBAT_CARD_WIDTH, COMBAT_CARD_HEIGHT)
+		slot.Position = UDim2.fromOffset(
+			COMBAT_SLOT_PADDING + ((i - 1) * (COMBAT_CARD_WIDTH + COMBAT_SLOT_GAP)),
+			COMBAT_SLOT_PADDING
+		)
+		slot.ZIndex = combatDeckFrame.ZIndex + 1
+	end
+
+	combatDeckFrame.CanvasSize = UDim2.fromOffset(
+		(COMBAT_SLOT_PADDING * 2) + (COMBAT_CARD_WIDTH * COMBAT_MAX_UNIQUE) + (COMBAT_SLOT_GAP * (COMBAT_MAX_UNIQUE - 1)),
+		0
+	)
+end
+
+local function getCardDeckContainer(card)
+	if not card then
+		return nil
+	end
+	if card.Parent == inventoryFrame then
+		return inventoryFrame
+	end
+	if card.Parent == combatDeckFrame then
+		return combatDeckFrame
+	end
+	local parent = card.Parent
+	if parent and parent.Parent == combatDeckFrame and parent.Name:match("^" .. COMBAT_SLOT_PREFIX .. "%d+$") then
+		return combatDeckFrame
+	end
+	return nil
+end
+
+local function getCardCombatSlotIndex(card)
+	if not card or not card.Parent then
+		return nil
+	end
+	if card.Parent == combatDeckFrame then
+		return nil
+	end
+	if card.Parent.Parent ~= combatDeckFrame then
+		return nil
+	end
+	local idx = tonumber(card.Parent.Name:match("^" .. COMBAT_SLOT_PREFIX .. "(%d+)$"))
+	if idx and idx >= 1 and idx <= COMBAT_MAX_UNIQUE then
+		return idx
+	end
+	return nil
+end
+
+local function getFirstEmptyCombatSlotIndex()
+	for i = 1, COMBAT_MAX_UNIQUE do
+		local slot = getCombatSlot(i)
+		if slot and not slot:FindFirstChildWhichIsA("GuiButton") then
+			return i
+		end
+	end
+	return nil
+end
+
+local function getCombatCardsInSlot(slot)
+	local cards = {}
+	if not slot then
+		return cards
+	end
+	for _, child in ipairs(slot:GetChildren()) do
+		if child:IsA("GuiButton") then
+			table.insert(cards, child)
+		end
+	end
+	return cards
+end
+
+local function getCardIdFromGuiCard(guiCard)
+	local id = guiCard and guiCard:GetAttribute("CardId") or nil
+	if type(id) ~= "string" or id == "" then
+		id = guiCard and guiCard.Name or nil
+	end
+	if type(id) ~= "string" or id == "" then
+		return nil
+	end
+	return CardDatabase.ResolveCardIdStrict(id)
+end
+
+local function choosePrimaryCombatSlotCard(cards)
+	if #cards == 0 then
+		return nil
+	end
+	-- Prefer non-darkmonarch when legacy duplicate cards exist in same slot.
+	for _, card in ipairs(cards) do
+		if getCardIdFromGuiCard(card) ~= "darkmonarch" then
+			return card
+		end
+	end
+	return cards[1]
+end
+
+local function enforceCombatDeckIntegrity()
+	local changed = false
+	ensureCombatSlots()
+
+	-- Keep at most one card per slot.
+	for i = 1, COMBAT_MAX_UNIQUE do
+		local slot = getCombatSlot(i)
+		if slot then
+			local cards = getCombatCardsInSlot(slot)
+			if #cards > 1 then
+				local keep = choosePrimaryCombatSlotCard(cards)
+				for _, extra in ipairs(cards) do
+					if extra ~= keep then
+						local extraId = getCardIdFromGuiCard(extra)
+						extra:Destroy()
+						if type(extraId) == "string" and extraId ~= "" then
+							AddCardToInventory(extraId, false)
+						end
+						changed = true
+					end
+				end
+			end
+
+			local primary = choosePrimaryCombatSlotCard(getCombatCardsInSlot(slot))
+			if primary then
+				if not getCardIdFromGuiCard(primary) then
+					primary:Destroy()
+					changed = true
+					continue
+				end
+				primary.Parent = slot
+				primary.Size = UDim2.fromScale(1, 1)
+				primary.Position = UDim2.fromOffset(0, 0)
+				SetCardStackVisual(primary, combatDeckFrame)
+			end
+		end
+	end
+
+	-- Any card directly under combat frame (not inside slots) is invalid; return it to inventory.
+	for _, child in ipairs(combatDeckFrame:GetChildren()) do
+		if child:IsA("GuiButton") then
+			local cardId = getCardIdFromGuiCard(child)
+			child:Destroy()
+			if type(cardId) == "string" and cardId ~= "" then
+				AddCardToInventory(cardId, false)
+			end
+			changed = true
+		end
+	end
+
+	return changed
+end
+
+local function SaveDeckState()
+	if not hasLoadedSaveData then
+		pendingSaveAfterLoad = true
+		return
+	end
+
+	enforceCombatDeckIntegrity()
+
+	local invList = {}
+	for _, c in pairs(inventoryFrame:GetChildren()) do
+		if c:IsA("GuiButton") then
+			local cardId = getCardIdFromGuiCard(c)
+			if not cardId then
+				c:Destroy()
+				continue
+			end
+			local count = tonumber(c.NumberLabel.Text) or 1
+			for _ = 1, count do
+				table.insert(invList, cardId)
+			end
+		end
+	end
+
+	local deckList = {}
+	for i = 1, COMBAT_MAX_UNIQUE do
+		local slot = getCombatSlot(i)
+		if slot then
+			local slotCards = getCombatCardsInSlot(slot)
+			local c = choosePrimaryCombatSlotCard(slotCards)
+			local cardId = getCardIdFromGuiCard(c)
+			-- Keep fixed slot indexes so rejoin rebuild is exact.
+			deckList[i] = cardId or ""
+		else
+			deckList[i] = ""
+		end
+	end
+
+	local payload = {
+		inventory = invList,
+		combat = deckList,
+		rollCount = currentRollCount,
+		level = currentLevel,
+		coins = getCurrencyValueObject().Value,
+	}
+	saveEvent:FireServer(payload)
+end
+
+local function SetProgress(rollCount, level)
+	if type(rollCount) == "number" then
+		currentRollCount = math.max(0, math.floor(rollCount))
+	end
+	if type(level) == "number" then
+		currentLevel = math.max(1, math.floor(level))
+	end
+	if updateProgressStatsDisplay then
+		updateProgressStatsDisplay()
+	end
+end
+
+local sellValueByRarity = {
+	Common = 0,
+	Uncommon = 1,
+	Rare = 2,
+	Epic = 3,
+	Legendary = 4,
+	God = 5,
+	Transcendent = 10,
+}
+
+getOrCreateIntValue = function(name, defaultValue)
+	local valueObj = ReplicatedStorage:FindFirstChild(name)
+	if not (valueObj and valueObj:IsA("IntValue")) then
+		if valueObj then
+			valueObj:Destroy()
+		end
+		valueObj = Instance.new("IntValue")
+		valueObj.Name = name
+		valueObj.Value = defaultValue or 0
+		valueObj.Parent = ReplicatedStorage
+	end
+	return valueObj
+end
+
+getOrCreateBoolValue = function(name, defaultValue)
+	local valueObj = ReplicatedStorage:FindFirstChild(name)
+	if not (valueObj and valueObj:IsA("BoolValue")) then
+		if valueObj then
+			valueObj:Destroy()
+		end
+		valueObj = Instance.new("BoolValue")
+		valueObj.Name = name
+		valueObj.Value = defaultValue == true
+		valueObj.Parent = ReplicatedStorage
+	end
+	return valueObj
+end
+
+getOrCreateBindableEvent = function(name)
+	local ev = ReplicatedStorage:FindFirstChild(name)
+	if not (ev and ev:IsA("BindableEvent")) then
+		if ev then
+			ev:Destroy()
+		end
+		ev = Instance.new("BindableEvent")
+		ev.Name = name
+		ev.Parent = ReplicatedStorage
+	end
+	return ev
+end
+
+getCurrencyValueObject = function()
+	local valueObj = ReplicatedStorage:FindFirstChild("PlayerCurrencyValue")
+	if not (valueObj and valueObj:IsA("IntValue")) then
+		if valueObj then
+			valueObj:Destroy()
+		end
+		valueObj = Instance.new("IntValue")
+		valueObj.Name = "PlayerCurrencyValue"
+		valueObj.Value = 0
+		valueObj.Parent = ReplicatedStorage
+	end
+	return valueObj
+end
+
+getAutoRollOwnedValueObject = function()
+	return getOrCreateIntValue("ItemOwned_AutoRoll2x20s", 0)
+end
+
+local sellModeEnabledValue = getOrCreateBoolValue("ShopSellModeEnabled", false)
+local selectedSellCountValue = getOrCreateIntValue("ShopSellSelectedCount", 0)
+local selectedSellCoinsValue = getOrCreateIntValue("ShopSellSelectedCoins", 0)
+local confirmSellSelectionEvent = getOrCreateBindableEvent("ConfirmSellSelectionEvent")
+
+local selectedSellCountByCard = {}
+
+local function getCardSellValue(cardId)
+	local data = CardDatabase.GetCardData(cardId)
+	local rarity = (data and data.Rarity) or "Common"
+	return sellValueByRarity[rarity] or 0
+end
+
+local function applySellSelectionVisual(card, selectedCount)
+	if not card then
+		return
+	end
+
+	local glow = card:FindFirstChild("SellSelectGlow")
+	if not (glow and glow:IsA("UIStroke")) then
+		glow = Instance.new("UIStroke")
+		glow.Name = "SellSelectGlow"
+		glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		glow.Thickness = 4
+		glow.Color = Color3.fromRGB(255, 215, 95)
+		glow.Transparency = 1
+		glow.Parent = card
+	end
+
+	local badge = card:FindFirstChild("SellSelectBadge")
+	if not (badge and badge:IsA("TextLabel")) then
+		badge = Instance.new("TextLabel")
+		badge.Name = "SellSelectBadge"
+		badge.AnchorPoint = Vector2.new(0, 0)
+		badge.Size = UDim2.fromOffset(56, 18)
+		badge.Position = UDim2.fromOffset(4, 4)
+		badge.BackgroundColor3 = Color3.fromRGB(34, 94, 52)
+		badge.BackgroundTransparency = 0.12
+		badge.BorderSizePixel = 0
+		badge.Font = Enum.Font.SourceSansBold
+		badge.TextColor3 = Color3.fromRGB(229, 255, 214)
+		badge.TextScaled = true
+		badge.Visible = false
+		badge.ZIndex = 8
+		badge.Parent = card
+
+		local badgeCorner = Instance.new("UICorner")
+		badgeCorner.CornerRadius = UDim.new(0, 4)
+		badgeCorner.Parent = badge
+	end
+
+	if selectedCount > 0 then
+		glow.Transparency = 0.05
+		badge.Visible = true
+		badge.Text = "SELL x" .. tostring(selectedCount)
+	else
+		glow.Transparency = 1
+		badge.Visible = false
+	end
+end
+
+local function refreshSellSelectionTotals()
+	local totalCount = 0
+	local totalCoins = 0
+	for card, count in pairs(selectedSellCountByCard) do
+		if not (card and card.Parent == inventoryFrame and count > 0) then
+			selectedSellCountByCard[card] = nil
+			if card then
+				applySellSelectionVisual(card, 0)
+			end
+		else
+			local stackCount = tonumber(card.NumberLabel.Text) or 1
+			local clamped = math.max(0, math.min(count, stackCount))
+			selectedSellCountByCard[card] = clamped
+			applySellSelectionVisual(card, clamped)
+			totalCount += clamped
+			totalCoins += clamped * getCardSellValue(card.Name)
+		end
+	end
+
+	selectedSellCountValue.Value = totalCount
+	selectedSellCoinsValue.Value = totalCoins
+end
+
+local function clearSellSelections()
+	for card in pairs(selectedSellCountByCard) do
+		if card then
+			applySellSelectionVisual(card, 0)
+		end
+	end
+	table.clear(selectedSellCountByCard)
+	selectedSellCountValue.Value = 0
+	selectedSellCoinsValue.Value = 0
+end
+
+sellModeEnabledValue:GetPropertyChangedSignal("Value"):Connect(function()
+	if not sellModeEnabledValue.Value then
+		clearSellSelections()
+	else
+		refreshSellSelectionTotals()
+	end
+end)
+
+confirmSellSelectionEvent.Event:Connect(function()
+	if not sellModeEnabledValue.Value then
+		return
+	end
+
+	local gainedCoins = 0
+	local soldAny = false
+	for card, selectedCount in pairs(selectedSellCountByCard) do
+		if card and card.Parent == inventoryFrame and selectedCount > 0 then
+			local stackCount = tonumber(card.NumberLabel.Text) or 1
+			local sellCount = math.max(0, math.min(selectedCount, stackCount))
+			if sellCount > 0 then
+				soldAny = true
+				gainedCoins += sellCount * getCardSellValue(card.Name)
+				local remaining = stackCount - sellCount
+				if remaining > 0 then
+					card.NumberLabel.Text = tostring(remaining)
+				else
+					card:Destroy()
+				end
+			end
+		end
+	end
+
+	if soldAny then
+		if gainedCoins > 0 then
+			local currency = getCurrencyValueObject()
+			currency.Value += gainedCoins
+		end
+		SaveDeckState()
+	end
+
+	clearSellSelections()
+end)
+
+local function ensureStatsPill(container, name, titleText, accentColor)
+	local pill = container:FindFirstChild(name)
+	if not (pill and pill:IsA("Frame")) then
+		if pill then
+			pill:Destroy()
+		end
+		pill = Instance.new("Frame")
+		pill.Name = name
+		pill.Size = UDim2.new(0, 156, 1, 0)
+		pill.BackgroundColor3 = Color3.fromRGB(22, 24, 30)
+		pill.BackgroundTransparency = 0.16
+		pill.BorderSizePixel = 0
+		pill.Parent = container
+
+		local pillCorner = Instance.new("UICorner")
+		pillCorner.CornerRadius = UDim.new(0, 10)
+		pillCorner.Parent = pill
+
+		local pillStroke = Instance.new("UIStroke")
+		pillStroke.Thickness = 1
+		pillStroke.Transparency = 0.2
+		pillStroke.Color = accentColor
+		pillStroke.Parent = pill
+
+		local accent = Instance.new("Frame")
+		accent.Name = "Accent"
+		accent.Size = UDim2.new(0, 4, 1, -10)
+		accent.Position = UDim2.fromOffset(6, 5)
+		accent.BackgroundColor3 = accentColor
+		accent.BorderSizePixel = 0
+		accent.Parent = pill
+
+		local accentCorner = Instance.new("UICorner")
+		accentCorner.CornerRadius = UDim.new(0, 4)
+		accentCorner.Parent = accent
+
+		local title = Instance.new("TextLabel")
+		title.Name = "Title"
+		title.Size = UDim2.new(1, -20, 0, 16)
+		title.Position = UDim2.fromOffset(16, 6)
+		title.BackgroundTransparency = 1
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.Text = titleText
+		title.TextColor3 = Color3.fromRGB(195, 202, 214)
+		title.Font = Enum.Font.GothamMedium
+		title.TextSize = 12
+		title.Parent = pill
+
+		local value = Instance.new("TextLabel")
+		value.Name = "Value"
+		value.Size = UDim2.new(1, -20, 0, 24)
+		value.Position = UDim2.fromOffset(16, 22)
+		value.BackgroundTransparency = 1
+		value.TextXAlignment = Enum.TextXAlignment.Left
+		value.Text = "0"
+		value.TextColor3 = Color3.fromRGB(244, 247, 255)
+		value.Font = Enum.Font.GothamBold
+		value.TextSize = 19
+		value.Parent = pill
+	end
+	return pill
+end
+
+local function ensureBottomStatsBar()
+	local statsBar = mainUI:FindFirstChild("BottomStatsBar")
+	if not (statsBar and statsBar:IsA("Frame")) then
+		if statsBar then
+			statsBar:Destroy()
+		end
+
+		statsBar = Instance.new("Frame")
+		statsBar.Name = "BottomStatsBar"
+		statsBar.AnchorPoint = Vector2.new(0, 1)
+		statsBar.Size = UDim2.fromOffset(486, 52)
+		statsBar.Position = UDim2.new(0, 190, 1, -12)
+		statsBar.BackgroundColor3 = Color3.fromRGB(14, 16, 22)
+		statsBar.BackgroundTransparency = 0.1
+		statsBar.BorderSizePixel = 0
+		statsBar.ZIndex = 40
+		statsBar.Parent = mainUI
+
+		local barCorner = Instance.new("UICorner")
+		barCorner.CornerRadius = UDim.new(0, 12)
+		barCorner.Parent = statsBar
+
+		local barStroke = Instance.new("UIStroke")
+		barStroke.Thickness = 1
+		barStroke.Transparency = 0.15
+		barStroke.Color = Color3.fromRGB(82, 92, 112)
+		barStroke.Parent = statsBar
+
+		local barPadding = Instance.new("UIPadding")
+		barPadding.PaddingLeft = UDim.new(0, 8)
+		barPadding.PaddingRight = UDim.new(0, 8)
+		barPadding.PaddingTop = UDim.new(0, 4)
+		barPadding.PaddingBottom = UDim.new(0, 4)
+		barPadding.Parent = statsBar
+
+		local row = Instance.new("UIListLayout")
+		row.Name = "RowLayout"
+		row.FillDirection = Enum.FillDirection.Horizontal
+		row.HorizontalAlignment = Enum.HorizontalAlignment.Left
+		row.VerticalAlignment = Enum.VerticalAlignment.Center
+		row.Padding = UDim.new(0, 9)
+		row.Parent = statsBar
+	end
+
+	local rollsPill = ensureStatsPill(statsBar, "RollsPill", "ROLLS", Color3.fromRGB(86, 160, 255))
+	rollsPill.LayoutOrder = 1
+	local levelPill = ensureStatsPill(statsBar, "LevelPill", "LEVEL", Color3.fromRGB(128, 210, 138))
+	levelPill.LayoutOrder = 2
+	local coinsPill = ensureStatsPill(statsBar, "CoinsPill", "COINS", Color3.fromRGB(255, 200, 92))
+	coinsPill.LayoutOrder = 3
+
+	return statsBar
+end
+
+local currencyValue = getCurrencyValueObject()
+updateProgressStatsDisplay = function()
+	local statsBar = ensureBottomStatsBar()
+	if not statsBar then
+		return
+	end
+
+	local rollsPill = statsBar:FindFirstChild("RollsPill")
+	if rollsPill and rollsPill:FindFirstChild("Value") then
+		rollsPill.Value.Text = tostring(currentRollCount)
+	end
+
+	local levelPill = statsBar:FindFirstChild("LevelPill")
+	if levelPill and levelPill:FindFirstChild("Value") then
+		levelPill.Value.Text = tostring(currentLevel)
+	end
+
+	local coinsPill = statsBar:FindFirstChild("CoinsPill")
+	if coinsPill and coinsPill:FindFirstChild("Value") then
+		coinsPill.Value.Text = tostring(currencyValue.Value)
+	end
+end
+
+currencyValue:GetPropertyChangedSignal("Value"):Connect(function()
+	if updateProgressStatsDisplay then
+		updateProgressStatsDisplay()
+	end
+end)
+
+local economySnapshotEvent = ReplicatedStorage:FindFirstChild("EconomySnapshotEvent")
+if not (economySnapshotEvent and economySnapshotEvent:IsA("BindableEvent")) then
+	if economySnapshotEvent then
+		economySnapshotEvent:Destroy()
+	end
+	economySnapshotEvent = Instance.new("BindableEvent")
+	economySnapshotEvent.Name = "EconomySnapshotEvent"
+	economySnapshotEvent.Parent = ReplicatedStorage
+end
+
+economySnapshotEvent.Event:Connect(function(payload)
+	if type(payload) ~= "table" then
+		return
+	end
+	if type(payload.boosterPacks) == "table" then
+		BoosterPackSystem.LoadOwnedSnapshot(payload.boosterPacks)
+	end
+end)
+
+updateProgressStatsDisplay()
+
+findCardArtDecal = function(cardId)
+	if type(cardId) ~= "string" or cardId == "" then
+		return nil
+	end
+
+	local exact = artFolder:FindFirstChild(cardId)
+	if exact and exact:IsA("Decal") then
+		return exact
+	end
+
+	local target = string.lower(cardId)
+	for _, obj in ipairs(artFolder:GetChildren()) do
+		if obj:IsA("Decal") and string.lower(obj.Name) == target then
+			return obj
+		end
+	end
+
+	return nil
+end
+
+local function isPointInsideGui(point, guiObject)
+	if not (guiObject and guiObject.Visible) then
+		return false
+	end
+	local pos = guiObject.AbsolutePosition
+	local size = guiObject.AbsoluteSize
+	return point.X >= pos.X and point.X <= (pos.X + size.X)
+		and point.Y >= pos.Y and point.Y <= (pos.Y + size.Y)
+end
+
+local function getDropTargetAtPoint(point)
+	local inventoryBg = mainUI:FindFirstChild("InventoryDeckBackground")
+	local combatBg = mainUI:FindFirstChild("CombatDeckBackground")
+
+	if isPointInsideGui(point, inventoryFrame) then
+		return {kind = "frame", frame = inventoryFrame}
+	end
+	if inventoryBg and isPointInsideGui(point, inventoryBg) then
+		return {kind = "frame", frame = inventoryFrame}
+	end
+	if isPointInsideGui(point, combatDeckFrame) then
+		ensureCombatSlots()
+		for i = 1, COMBAT_MAX_UNIQUE do
+			local slot = getCombatSlot(i)
+			if slot and isPointInsideGui(point, slot) then
+				return {kind = "frame", frame = combatDeckFrame, slotIndex = i}
+			end
+		end
+		return {kind = "frame", frame = combatDeckFrame, slotIndex = getFirstEmptyCombatSlotIndex()}
+	end
+	if combatBg and isPointInsideGui(point, combatBg) then
+		return {kind = "frame", frame = combatDeckFrame, slotIndex = getFirstEmptyCombatSlotIndex()}
+	end
+	return nil
+end
+
+local function moveOneCardToFrame(card, targetParent, targetSlotIndex)
+	if not (card and targetParent and (targetParent == inventoryFrame or targetParent == combatDeckFrame)) then
+		return false
+	end
+
+	local sourceParent = getCardDeckContainer(card)
+	if not (sourceParent == inventoryFrame or sourceParent == combatDeckFrame) then
+		return false
+	end
+	local cardId = getCardIdFromGuiCard(card)
+	if type(cardId) ~= "string" or cardId == "" then
+		return false
+	end
+
+	-- Combat to combat: swap/reposition inside fixed slots.
+	if sourceParent == combatDeckFrame and targetParent == combatDeckFrame then
+		ensureCombatSlots()
+		local fromSlotIndex = getCardCombatSlotIndex(card)
+		local toSlotIndex = targetSlotIndex or fromSlotIndex
+		if not (fromSlotIndex and toSlotIndex) or fromSlotIndex == toSlotIndex then
+			return false
+		end
+
+		local fromSlot = getCombatSlot(fromSlotIndex)
+		local toSlot = getCombatSlot(toSlotIndex)
+		if not (fromSlot and toSlot) then
+			return false
+		end
+
+		local occupying = toSlot:FindFirstChildWhichIsA("GuiButton")
+		if occupying and occupying ~= card then
+			occupying.Parent = fromSlot
+			occupying.Size = UDim2.fromScale(1, 1)
+			occupying.Position = UDim2.fromOffset(0, 0)
+			SetCardStackVisual(occupying, combatDeckFrame)
+		end
+
+		card.Parent = toSlot
+		card.Size = UDim2.fromScale(1, 1)
+		card.Position = UDim2.fromOffset(0, 0)
+		SetCardStackVisual(card, combatDeckFrame)
+		SaveDeckState()
+		return true
+	end
+
+	if sourceParent == targetParent then
+		return false
+	end
+
+	-- Combat to inventory: remove from slot and add one stack in inventory.
+	if sourceParent == combatDeckFrame and targetParent == inventoryFrame then
+		card:Destroy()
+		AddCardToInventory(cardId, false)
+		SaveDeckState()
+		return true
+	end
+
+	-- Inventory to combat: consume one stack and place into target slot.
+	if sourceParent == inventoryFrame and targetParent == combatDeckFrame then
+		ensureCombatSlots()
+		local chosenSlotIndex = targetSlotIndex
+		if not chosenSlotIndex then
+			chosenSlotIndex = getFirstEmptyCombatSlotIndex()
+		end
+		if not chosenSlotIndex then
+			return false
+		end
+
+		local chosenSlot = getCombatSlot(chosenSlotIndex)
+		if not chosenSlot then
+			return false
+		end
+
+		local replacedCards = getCombatCardsInSlot(chosenSlot)
+
+		-- Consume one from inventory stack.
+		local num = tonumber(card.NumberLabel.Text) or 1
+		if num > 1 then
+			card.NumberLabel.Text = tostring(num - 1)
+		else
+			card:Destroy()
+		end
+
+		if #replacedCards > 0 then
+			for _, replaced in ipairs(replacedCards) do
+				local replacedId = getCardIdFromGuiCard(replaced)
+				replaced:Destroy()
+				if type(replacedId) == "string" and replacedId ~= "" then
+					AddCardToInventory(replacedId, false)
+				end
+			end
+		end
+
+		local placed = CreateCard(cardId)
+		if not placed then
+			-- Roll back consumed card if placement fails.
+			AddCardToInventory(cardId, false)
+			SaveDeckState()
+			return false
+		end
+
+		placed.NumberLabel.Text = "1"
+		placed.Parent = chosenSlot
+		placed.Size = UDim2.fromScale(1, 1)
+		placed.Position = UDim2.fromOffset(0, 0)
+		SetCardStackVisual(placed, combatDeckFrame)
+		SaveDeckState()
+		return true
+	end
+
+	return false
+end
+
+-- Card management
+function CreateCard(cardId)
+	local resolvedCardId = CardDatabase.ResolveCardIdStrict(cardId)
+	if not resolvedCardId then
+		return nil
+	end
+
+	local data = CardDatabase.GetCardData(resolvedCardId)
+	if not data then return nil end
+
+	local newCard = template:Clone()
+	newCard.Name = resolvedCardId
+	newCard:SetAttribute("CardId", resolvedCardId)
+	newCard.Size = UDim2.fromScale(1, 1)  -- Fill grid cell
+	newCard.BackgroundTransparency = 1  -- Remove button background
+	newCard.ZIndex = 6
+	
+	-- Layout labels proportionally
+	newCard.NameLabel.Text = data.Name
+	newCard.NameLabel.Size = UDim2.new(1, -8, 0.25, 0)
+	newCard.NameLabel.Position = UDim2.fromOffset(4, 2)
+	newCard.NameLabel.Font = CARD_NAME_FONT
+	newCard.NameLabel.TextColor3 = Color3.new(1, 1, 1)  -- White text
+	newCard.NameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+	newCard.NameLabel.TextStrokeTransparency = 0
+	newCard.NameLabel.BackgroundTransparency = 1  -- No background
+	
+	newCard.AttackLabel.Text = CardDatabase.FormatAttack(data.Attack)
+	newCard.AttackLabel.Size = UDim2.fromScale(0.9, 0.4)
+	newCard.AttackLabel.Position = UDim2.fromScale(0.03, 0.62)
+	newCard.AttackLabel.Font = CARD_STAT_FONT
+	newCard.AttackLabel.TextColor3 = Color3.new(1, 0, 0)  -- Red text for attack
+	newCard.AttackLabel.BackgroundTransparency = 1  -- No background
+	newCard.AttackLabel.TextStrokeColor3 = Color3.new(0, 0, 0)  -- Black outline
+	newCard.AttackLabel.TextStrokeTransparency = 0  -- Fully visible outline
+	newCard.AttackLabel.TextXAlignment = Enum.TextXAlignment.Left
+	newCard.AttackLabel.TextYAlignment = Enum.TextYAlignment.Bottom
+	newCard.AttackLabel.TextWrapped = false
+	newCard.AttackLabel.TextScaled = true
+	local attackSizeConstraint = newCard.AttackLabel:FindFirstChild("AttackTextSizeConstraint")
+	if not (attackSizeConstraint and attackSizeConstraint:IsA("UITextSizeConstraint")) then
+		attackSizeConstraint = Instance.new("UITextSizeConstraint")
+		attackSizeConstraint.Name = "AttackTextSizeConstraint"
+		attackSizeConstraint.Parent = newCard.AttackLabel
+	end
+	-- Cap growth so short values don't become larger than the intended 6-digit look.
+	attackSizeConstraint.MaxTextSize = 42
+	attackSizeConstraint.MinTextSize = 16
+
+	local hpLabel = newCard:FindFirstChild("HpLabel")
+	if not (hpLabel and hpLabel:IsA("TextLabel")) then
+		hpLabel = Instance.new("TextLabel")
+		hpLabel.Name = "HpLabel"
+		hpLabel.Parent = newCard
+	end
+	hpLabel.Text = "HP: " .. CardDatabase.FormatAttack(data.Health)
+	hpLabel.Size = UDim2.fromScale(0.9, 0.22)
+	hpLabel.Position = UDim2.fromScale(0.03, 0.47)
+	hpLabel.Font = CARD_STAT_FONT
+	hpLabel.TextColor3 = Color3.fromRGB(108, 255, 145)
+	hpLabel.BackgroundTransparency = 1
+	hpLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+	hpLabel.TextStrokeTransparency = 0
+	hpLabel.TextXAlignment = Enum.TextXAlignment.Left
+	hpLabel.TextYAlignment = Enum.TextYAlignment.Bottom
+	hpLabel.TextWrapped = false
+	hpLabel.TextScaled = true
+	local hpSizeConstraint = hpLabel:FindFirstChild("HpTextSizeConstraint")
+	if not (hpSizeConstraint and hpSizeConstraint:IsA("UITextSizeConstraint")) then
+		hpSizeConstraint = Instance.new("UITextSizeConstraint")
+		hpSizeConstraint.Name = "HpTextSizeConstraint"
+		hpSizeConstraint.Parent = hpLabel
+	end
+	hpSizeConstraint.MaxTextSize = 34
+	hpSizeConstraint.MinTextSize = 14
+	
+	newCard.NumberLabel.Size = UDim2.fromScale(0.16, 0.11)  -- Smaller count badge to free attack space
+	newCard.NumberLabel.Position = UDim2.fromScale(0.82, 0.03)  -- Top right corner
+	newCard.NumberLabel.Font = CARD_META_FONT
+	newCard.NumberLabel.TextColor3 = Color3.new(1, 1, 1)  -- White text
+	newCard.NumberLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+	newCard.NumberLabel.TextStrokeTransparency = 0
+	newCard.NumberLabel.BackgroundTransparency = 1  -- No background
+	newCard.NumberLabel.TextScaled = true
+	
+	-- Make ArtLabel fill the card and remove background
+	newCard.ArtLabel.Size = UDim2.fromScale(1, 1)
+	newCard.ArtLabel.Position = UDim2.fromOffset(0, 0)
+	newCard.ArtLabel.BackgroundTransparency = 1
+	newCard.ArtLabel.ScaleType = Enum.ScaleType.Fit
+	newCard.ArtLabel.ZIndex = 6
+	newCard.NameLabel.ZIndex = 7
+	hpLabel.ZIndex = 7
+	newCard.AttackLabel.ZIndex = 7
+	newCard.NumberLabel.ZIndex = 7  -- Stack number on top
+	newCard.NumberLabel.Text = "1"  -- Default to 1
+	applyAnimatedCardBorder(newCard, data.Rarity, resolvedCardId)
+
+	applyCardArtVisual(newCard, resolvedCardId, data)
+
+	-- Drag to move cards between decks. If no drag occurs, click still quick-moves one card.
+	local dragging = false
+	local dragStart = nil
+	local lastPointerPos = nil
+	local dragOriginContainer = nil
+	local dragTrackType = nil
+	local ghostCard = nil
+	local dragMoveConnection = nil
+	local suppressNextClick = false
+	local DRAG_START_THRESHOLD = 8
+	local sellHoldActive = false
+	local sellHoldGeneration = 0
+
+	local function incrementSellSelection()
+		if getCardDeckContainer(newCard) ~= inventoryFrame then
+			return
+		end
+		local stackCount = tonumber(newCard.NumberLabel.Text) or 1
+		local current = selectedSellCountByCard[newCard] or 0
+		local nextCount = math.min(stackCount, current + 1)
+		selectedSellCountByCard[newCard] = nextCount
+		refreshSellSelectionTotals()
+	end
+
+	local function setGhostCardPosition(screenPos)
+		if not ghostCard then
+			return
+		end
+		ghostCard.Position = UDim2.fromOffset(screenPos.X, screenPos.Y)
+	end
+
+	local function startGhostDrag(screenPos)
+		if dragging or not newCard.Parent then
+			return
+		end
+		dragging = true
+		hideHoverPreview(0)
+
+		ghostCard = newCard:Clone()
+		ghostCard.Name = "DragGhost_" .. newCard.Name
+		ghostCard.AnchorPoint = Vector2.new(0.5, 0.5)
+		ghostCard.Size = UDim2.fromOffset(newCard.AbsoluteSize.X, newCard.AbsoluteSize.Y)
+		ghostCard.Parent = mainUI
+		ghostCard.ZIndex = 80
+		ghostCard.BackgroundTransparency = 0.22
+
+		for _, obj in ipairs(ghostCard:GetDescendants()) do
+			if obj:IsA("GuiObject") then
+				obj.ZIndex = math.max(obj.ZIndex, 81)
+			end
+		end
+
+		setGhostCardPosition(screenPos)
+	end
+
+	local function finishDrag(screenPos)
+		if dragMoveConnection then
+			dragMoveConnection:Disconnect()
+			dragMoveConnection = nil
+		end
+
+		if ghostCard then
+			ghostCard:Destroy()
+			ghostCard = nil
+		end
+
+		if dragging then
+			local releasePos = screenPos or lastPointerPos or Vector2.new(0, 0)
+			local dropTarget = getDropTargetAtPoint(releasePos)
+			if dropTarget then
+				local moved = moveOneCardToFrame(newCard, dropTarget.frame, dropTarget.slotIndex)
+				-- If a combat-origin drag fails to place, prefer returning to inventory.
+				if not moved and dragOriginContainer == combatDeckFrame then
+					moveOneCardToFrame(newCard, inventoryFrame)
+				end
+			elseif dragOriginContainer == combatDeckFrame then
+				-- Releasing outside valid drop zones should still let combat cards leave.
+				moveOneCardToFrame(newCard, inventoryFrame)
+			end
+			suppressNextClick = true
+			task.delay(0.05, function()
+				suppressNextClick = false
+			end)
+		end
+
+		dragging = false
+		dragStart = nil
+		lastPointerPos = nil
+		dragOriginContainer = nil
+		dragTrackType = nil
+	end
+
+	newCard.InputBegan:Connect(function(input)
+		if sellModeEnabledValue.Value then
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				incrementSellSelection()
+				sellHoldActive = true
+				sellHoldGeneration += 1
+				local myGeneration = sellHoldGeneration
+
+				task.spawn(function()
+					local holdStart = os.clock()
+					task.wait(0.24)
+					while sellHoldActive and sellHoldGeneration == myGeneration and sellModeEnabledValue.Value do
+						incrementSellSelection()
+						local heldSeconds = os.clock() - holdStart
+						-- Accelerate repeat speed the longer the press is held.
+						local repeatInterval = math.max(0.02, 0.11 - (heldSeconds * 0.04))
+						task.wait(repeatInterval)
+					end
+				end)
+
+				input.Changed:Connect(function()
+					if input.UserInputState == Enum.UserInputState.End then
+						sellHoldActive = false
+					end
+				end)
+			end
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragStart = input.Position
+			lastPointerPos = input.Position
+			dragOriginContainer = getCardDeckContainer(newCard)
+			dragTrackType = (input.UserInputType == Enum.UserInputType.Touch) and Enum.UserInputType.Touch or Enum.UserInputType.MouseMovement
+			if dragMoveConnection then
+				dragMoveConnection:Disconnect()
+			end
+			dragMoveConnection = UserInputService.InputChanged:Connect(function(changedInput)
+				if not dragStart then
+					return
+				end
+				if changedInput.UserInputType ~= dragTrackType then
+					return
+				end
+				lastPointerPos = changedInput.Position
+
+				local delta = changedInput.Position - dragStart
+				if not dragging and delta.Magnitude >= DRAG_START_THRESHOLD then
+					startGhostDrag(changedInput.Position)
+				end
+
+				if dragging then
+					setGhostCardPosition(changedInput.Position)
+				end
+			end)
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					finishDrag(input.Position)
+				end
+			end)
+		end
+	end)
+
+	newCard.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			lastPointerPos = input.Position
+		end
+	end)
+
+	newCard.MouseButton1Click:Connect(function()
+		if suppressNextClick then
+			return
+		end
+		if sellModeEnabledValue.Value then
+			return
+		end
+		local currentParent = getCardDeckContainer(newCard)
+		local targetParent = (currentParent == inventoryFrame) and combatDeckFrame or inventoryFrame
+		moveOneCardToFrame(newCard, targetParent)
+	end)
+
+	newCard.MouseEnter:Connect(function()
+		if not dragging then
+			showHoverPreview(resolvedCardId)
+		end
+	end)
+
+	newCard.MouseLeave:Connect(function()
+		hideHoverPreview(0.05)
+	end)
+
+	SetCardStackVisual(newCard, getCardDeckContainer(newCard) or inventoryFrame)
+	applyCardArtVisual(newCard, resolvedCardId, data)
+
+	return newCard
+end
+
+-- Function to add a card to inventory
+function AddCardToInventory(cardId, shouldSave)
+	local resolvedCardId = CardDatabase.ResolveCardIdStrict(cardId)
+	if not resolvedCardId then
+		return
+	end
+
+	local existingCard = inventoryFrame:FindFirstChild(resolvedCardId)
+	if existingCard then
+		local num = tonumber(existingCard.NumberLabel.Text) or 1
+		existingCard.NumberLabel.Text = tostring(num + 1)
+		SetCardStackVisual(existingCard, inventoryFrame)
+	else
+		local card = CreateCard(resolvedCardId)
+		if card then
+			card.NumberLabel.Text = "1"
+			card.Parent = inventoryFrame
+			SetCardStackVisual(card, inventoryFrame)
+		end
+	end
+
+	if shouldSave ~= false then
+		SaveDeckState()
+	end
+	if sellModeEnabledValue.Value then
+		refreshSellSelectionTotals()
+	end
+end
+
+local function AddMultipleCardsToInventory(cardIds)
+	if type(cardIds) ~= "table" then
+		return
+	end
+
+	for _, cardId in ipairs(cardIds) do
+		if type(cardId) == "string" then
+			AddCardToInventory(cardId, false)
+		end
+	end
+
+	SaveDeckState()
+	if sellModeEnabledValue.Value then
+		refreshSellSelectionTotals()
+	end
+end
+
+-- Listen for idle card gains
+idleEvent.Event:Connect(function(payload)
+	if type(payload) == "table" then
+		SetProgress(payload.rollCount, payload.level)
+		if payload.cardIds then
+			AddMultipleCardsToInventory(payload.cardIds)
+			return
+		end
+		if payload.cardId then
+			AddCardToInventory(payload.cardId)
+		end
+		return
+	end
+
+	AddCardToInventory(payload)
+end)
+
+-- Setup grid layouts for even spacing
+function SetupGridLayouts()
+	for _, frame in pairs({inventoryFrame, combatDeckFrame}) do
+		if frame == inventoryFrame then
+			frame.ScrollingDirection = Enum.ScrollingDirection.Y
+			frame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+			frame.CanvasSize = UDim2.fromOffset(0, 0)
+			frame.ScrollBarThickness = 8
+
+			ensureDeckBackground(frame, "InventoryDeckBackground", INVENTORY_BG_IMAGE, Color3.fromRGB(74, 130, 225))
+		else
+			frame.ScrollingDirection = Enum.ScrollingDirection.X
+			frame.AutomaticCanvasSize = Enum.AutomaticSize.None
+			frame.CanvasSize = UDim2.fromOffset(0, 0)
+			frame.ScrollBarThickness = 0
+
+			ensureDeckBackground(frame, "CombatDeckBackground", COMBAT_BG_IMAGE, Color3.fromRGB(225, 88, 88))
+			ensureCombatSlots()
+		end
+
+		if frame == inventoryFrame then
+			local gridLayout = frame:FindFirstChildOfClass("UIGridLayout")
+			if not gridLayout then
+				gridLayout = Instance.new("UIGridLayout")
+				gridLayout.Parent = frame
+			end
+			gridLayout.CellSize = UDim2.fromOffset(100, 150)
+			gridLayout.CellPadding = UDim2.fromOffset(10, 10)
+			gridLayout.FillDirection = Enum.FillDirection.Horizontal
+			gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+			gridLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+			gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		else
+			local combatGrid = frame:FindFirstChildOfClass("UIGridLayout")
+			if combatGrid then
+				combatGrid:Destroy()
+			end
+		end
+
+		local padding = frame:FindFirstChild("DeckPadding")
+		if not (padding and padding:IsA("UIPadding")) then
+			padding = Instance.new("UIPadding")
+			padding.Name = "DeckPadding"
+			padding.Parent = frame
+		end
+		if frame == inventoryFrame then
+			padding.PaddingLeft = UDim.new(0, 8)
+			padding.PaddingRight = UDim.new(0, 8)
+			padding.PaddingTop = UDim.new(0, 8)
+			padding.PaddingBottom = UDim.new(0, 8)
+		else
+			-- Combat slots are already explicitly positioned; avoid double offset.
+			padding.PaddingLeft = UDim.new(0, 0)
+			padding.PaddingRight = UDim.new(0, 0)
+			padding.PaddingTop = UDim.new(0, 0)
+			padding.PaddingBottom = UDim.new(0, 0)
+		end
+		
+		-- Ensure clipping for clean scrolling
+		frame.ClipsDescendants = true
+	end
+end
+
+-- Handle incoming data
+saveEvent.OnClientEvent:Connect(function(data)
+	SetProgress(data and data.rollCount, data and data.level)
+	if data and type(data.coins) == "number" then
+		getCurrencyValueObject().Value = math.max(0, math.floor(data.coins))
+	end
+	BoosterPackSystem.LoadOwnedSnapshot(data and data.boosterPacks)
+	if data and type(data.items) == "table" then
+		local owned = tonumber(data.items.AutoRoll2x20s) or 0
+		getAutoRollOwnedValueObject().Value = math.max(0, math.floor(owned))
+	else
+		getAutoRollOwnedValueObject().Value = 0
+	end
+	clearSellSelections()
+	
+	-- Clear frames
+	inventoryFrame:ClearAllChildren()
+	combatDeckFrame:ClearAllChildren()
+	
+	-- Setup layouts
+	SetupGridLayouts()
+	
+	-- Group inventory by card ID and count
+	local inventoryCounts = {}
+	for _, cardId in ipairs(data.inventory or {}) do
+		inventoryCounts[cardId] = (inventoryCounts[cardId] or 0) + 1
+	end
+	
+	-- Create stacked cards for inventory
+	for cardId, count in pairs(inventoryCounts) do
+		local card = CreateCard(cardId)
+		if card then
+			card.NumberLabel.Text = tostring(count)
+			card.Parent = inventoryFrame
+			SetCardStackVisual(card, inventoryFrame)
+		end
+	end
+	
+	-- Rebuild combat deck exactly by slot order (duplicates allowed).
+	for slotIndex = 1, COMBAT_MAX_UNIQUE do
+		local cardId = data and data.combat and data.combat[slotIndex]
+		if type(cardId) == "string" and cardId ~= "" then
+			local slot = getCombatSlot(slotIndex)
+			local card = CreateCard(cardId)
+			if card and slot then
+				for _, child in ipairs(slot:GetChildren()) do
+					if child:IsA("GuiButton") then
+						child:Destroy()
+					end
+				end
+				card.NumberLabel.Text = "1"
+				card.Parent = slot
+				card.Size = UDim2.fromScale(1, 1)
+				card.Position = UDim2.fromOffset(0, 0)
+				SetCardStackVisual(card, combatDeckFrame)
+			end
+		end
+	end
+
+	enforceCombatDeckIntegrity()
+
+	hasLoadedSaveData = true
+	if pendingSaveAfterLoad then
+		pendingSaveAfterLoad = false
+		task.defer(function()
+			SaveDeckState()
+		end)
+	end
+	
+	-- Force layout update
+	task.defer(function()
+		for _, frame in pairs({inventoryFrame}) do
+			local layout = frame:FindFirstChildOfClass("UIGridLayout")
+			if layout then
+				local oldPadding = layout.CellPadding
+				layout.CellPadding = UDim2.fromOffset(0, 0)
+				layout.CellPadding = oldPadding
+			end
+		end
+	end)
+end)
+
+-- Request initial data
+task.wait(1)
+hasLoadedSaveData = false
+saveEvent:FireServer("RequestLoad")

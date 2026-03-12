@@ -1,0 +1,171 @@
+local BoosterPacksTab = {}
+
+local BoosterPackSystem = require(script.Parent.Parent:WaitForChild("BoosterPackSystem"))
+local BoosterBalanceConfig = require(script.Parent.Parent:WaitForChild("BoosterBalanceConfig"))
+local EconomyClient = require(script.Parent.Parent:WaitForChild("services"):WaitForChild("EconomyClient"))
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local EconomyProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("EconomyProtocol"))
+
+local idleEvent = ReplicatedStorage:WaitForChild("IdleCardEvent")
+local boosterOpenVisualEvent = ReplicatedStorage:FindFirstChild("BoosterOpenVisualEvent")
+if not boosterOpenVisualEvent then
+	boosterOpenVisualEvent = Instance.new("BindableEvent")
+	boosterOpenVisualEvent.Name = "BoosterOpenVisualEvent"
+	boosterOpenVisualEvent.Parent = ReplicatedStorage
+end
+
+local TAB_IMAGE = "rbxassetid://0"
+
+function BoosterPacksTab.GetId()
+	return "Boosters"
+end
+
+function BoosterPacksTab.GetLabel()
+	return "Boosters"
+end
+
+function BoosterPacksTab.GetImage()
+	return TAB_IMAGE
+end
+
+function BoosterPacksTab.GetOrCreateFrame(mainUI, inventoryFrame)
+	local boosterPacksFrame = mainUI:FindFirstChild("BoosterPacksFrame")
+	if boosterPacksFrame then
+		return boosterPacksFrame
+	end
+
+	boosterPacksFrame = Instance.new("ScrollingFrame")
+	boosterPacksFrame.Name = "BoosterPacksFrame"
+	boosterPacksFrame.Size = inventoryFrame.Size
+	boosterPacksFrame.Position = inventoryFrame.Position
+	boosterPacksFrame.AnchorPoint = inventoryFrame.AnchorPoint
+	boosterPacksFrame.BackgroundTransparency = inventoryFrame.BackgroundTransparency
+	boosterPacksFrame.BackgroundColor3 = inventoryFrame.BackgroundColor3
+	boosterPacksFrame.BorderSizePixel = 0
+	boosterPacksFrame.ScrollBarThickness = 8
+	boosterPacksFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+	boosterPacksFrame.Visible = false
+	boosterPacksFrame.Parent = mainUI
+
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.new(1, -20, 0, 40)
+	title.Position = UDim2.new(0, 10, 0, 10)
+	title.BackgroundTransparency = 1
+	title.Text = "Your Booster Packs"
+	title.TextColor3 = Color3.new(1, 1, 1)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Font = Enum.Font.SourceSansBold
+	title.TextSize = 22
+	title.Parent = boosterPacksFrame
+
+	local list = Instance.new("Frame")
+	list.Name = "OwnedPackList"
+	list.Size = UDim2.new(1, -20, 1, -60)
+	list.Position = UDim2.new(0, 10, 0, 50)
+	list.BackgroundTransparency = 1
+	list.Parent = boosterPacksFrame
+
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.Padding = UDim.new(0, 8)
+	listLayout.FillDirection = Enum.FillDirection.Vertical
+	listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	listLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+	listLayout.Parent = list
+
+	local ownedLabelsByPackId = {}
+	for _, pack in ipairs(BoosterPackSystem.GetPacks()) do
+		local row = Instance.new("Frame")
+		row.Name = pack.Id .. "Row"
+		row.Size = UDim2.new(1, 0, 0, 64)
+		row.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+		row.BackgroundTransparency = 0.2
+		row.BorderSizePixel = 0
+		row.Parent = list
+
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
+		icon.Size = UDim2.new(0, 56, 0, 56)
+		icon.Position = UDim2.new(0, 4, 0, 4)
+		icon.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+		icon.BorderSizePixel = 0
+		icon.Image = pack.Image
+		icon.Parent = row
+
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Name = "NameLabel"
+		nameLabel.Size = UDim2.new(1, -190, 0, 28)
+		nameLabel.Position = UDim2.new(0, 68, 0, 6)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		nameLabel.TextColor3 = Color3.new(1, 1, 1)
+		nameLabel.Font = Enum.Font.SourceSansBold
+		nameLabel.TextSize = 20
+		nameLabel.Text = pack.Name
+		nameLabel.Parent = row
+
+		local ownedLabel = Instance.new("TextLabel")
+		ownedLabel.Name = "OwnedLabel"
+		ownedLabel.Size = UDim2.new(1, -190, 0, 24)
+		ownedLabel.Position = UDim2.new(0, 68, 0, 34)
+		ownedLabel.BackgroundTransparency = 1
+		ownedLabel.TextXAlignment = Enum.TextXAlignment.Left
+		ownedLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+		ownedLabel.Font = Enum.Font.SourceSans
+		ownedLabel.TextSize = 18
+		ownedLabel.Text = "Owned: " .. tostring(BoosterPackSystem.GetOwnedCount(pack.Id))
+		ownedLabel.Parent = row
+		ownedLabelsByPackId[pack.Id] = ownedLabel
+
+		local cardsPerOpen = math.max(1, math.floor(pack.CardsPerOpen or BoosterBalanceConfig.DefaultCardsPerOpen))
+		local openButton = Instance.new("TextButton")
+		openButton.Name = "OpenButton"
+		openButton.Size = UDim2.new(0, 110, 0, 36)
+		openButton.Position = UDim2.new(1, -116, 0.5, -18)
+		openButton.BackgroundColor3 = Color3.fromRGB(60, 100, 170)
+		openButton.BorderSizePixel = 0
+		openButton.TextColor3 = Color3.new(1, 1, 1)
+		openButton.Font = Enum.Font.SourceSansBold
+		openButton.TextSize = 18
+		openButton.Text = "Open x" .. tostring(cardsPerOpen)
+		openButton.Parent = row
+
+		openButton.MouseButton1Click:Connect(function()
+			local ok, responseOrErr = EconomyClient.Request(EconomyProtocol.ActionType.OpenPack, {
+				packId = pack.Id,
+				amount = 1,
+			})
+			if not ok then
+				openButton.Text = "No Packs"
+				task.delay(0.8, function()
+					if openButton and openButton.Parent then
+						openButton.Text = "Open x" .. tostring(cardsPerOpen)
+					end
+				end)
+				warn("Failed to open pack: " .. tostring(responseOrErr))
+				return
+			end
+
+			local rewards = responseOrErr.grantedCards
+			if type(rewards) ~= "table" or #rewards == 0 then
+				warn("OpenPack succeeded but returned no granted cards")
+				return
+			end
+
+			idleEvent:Fire({cardIds = rewards})
+			boosterOpenVisualEvent:Fire({cardIds = rewards})
+		end)
+	end
+
+	BoosterPackSystem.OnChanged(function(packId, newCount)
+		local ownedLabel = ownedLabelsByPackId[packId]
+		if ownedLabel then
+			ownedLabel.Text = "Owned: " .. tostring(newCount)
+		end
+	end)
+
+	return boosterPacksFrame
+end
+
+return BoosterPacksTab
