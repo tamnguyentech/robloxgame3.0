@@ -1349,6 +1349,36 @@ local function createDeckCardView(state)
 	vulnText.Text = "MARKED +0% · 0.0s"
 	vulnText.Parent = vulnBar
 
+	local sealBar = Instance.new("Frame")
+	sealBar.Name = "SealDebuffBar"
+	sealBar.Visible = false
+	sealBar.Size = UDim2.new(1, -10, 0, 22)
+	sealBar.Position = UDim2.new(0, 5, 0, 6)
+	sealBar.BackgroundColor3 = Color3.fromRGB(58, 42, 8)
+	sealBar.BackgroundTransparency = 0.1
+	sealBar.BorderSizePixel = 0
+	sealBar.ZIndex = 13
+	sealBar.Parent = frame
+	local sealCorner = Instance.new("UICorner")
+	sealCorner.CornerRadius = UDim.new(0, 6)
+	sealCorner.Parent = sealBar
+	local sealStroke = Instance.new("UIStroke")
+	sealStroke.Thickness = 1.2
+	sealStroke.Color = Color3.fromRGB(255, 210, 90)
+	sealStroke.Transparency = 0.2
+	sealStroke.Parent = sealBar
+	local sealText = Instance.new("TextLabel")
+	sealText.Name = "SealText"
+	sealText.Size = UDim2.fromScale(1, 1)
+	sealText.BackgroundTransparency = 1
+	sealText.Font = Enum.Font.GothamBold
+	sealText.TextSize = 12
+	sealText.TextColor3 = Color3.fromRGB(255, 235, 160)
+	sealText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	sealText.TextStrokeTransparency = 0.35
+	sealText.Text = "SEAL · abilities silenced · 0.0s"
+	sealText.Parent = sealBar
+
 	local controlBar = Instance.new("Frame")
 	controlBar.Name = "ControlDebuffBar"
 	controlBar.Visible = false
@@ -1527,11 +1557,26 @@ local function renderPanel(panel, titleText, states)
 				end
 			end
 
+			local sealBar = card:FindFirstChild("SealDebuffBar")
+			local sealText = sealBar and sealBar:FindFirstChild("SealText")
+			local sealVisible = false
+			if sealBar and sealText then
+				local sealRem = tonumber(state.sealRemainingSec) or 0
+				if sealRem > 0 then
+					sealBar.Visible = true
+					sealVisible = true
+					local barsAbove = (drVisible and 1 or 0) + (spdVisible and 1 or 0) + (healVisible and 1 or 0) + (vulnVisible and 1 or 0)
+					sealBar.Position = UDim2.new(0, 5, 0, 6 + (barsAbove * 24))
+					sealText.Text = string.format("SEAL · abilities silenced · %.1fs", sealRem)
+				else
+					sealBar.Visible = false
+				end
+			end
+
 			local controlBar = card:FindFirstChild("ControlDebuffBar")
 			local controlText = controlBar and controlBar:FindFirstChild("ControlText")
 			if controlBar and controlText then
 				local stunRem = tonumber(state.stunRemainingSec) or 0
-				local sealRem = tonumber(state.sealRemainingSec) or 0
 				local dodgeDisabledRem = tonumber(state.dodgeDisabledRemainingSec) or 0
 
 				local rem = 0
@@ -1546,12 +1591,6 @@ local function renderPanel(panel, titleText, states)
 					textColor = Color3.fromRGB(255, 160, 160)
 					strokeColor = Color3.fromRGB(255, 120, 120)
 					bgColor = Color3.fromRGB(70, 18, 18)
-				elseif sealRem > 0 then
-					rem = sealRem
-					label = "SEAL"
-					textColor = Color3.fromRGB(255, 225, 140)
-					strokeColor = Color3.fromRGB(255, 210, 90)
-					bgColor = Color3.fromRGB(70, 60, 10)
 				elseif dodgeDisabledRem > 0 then
 					rem = dodgeDisabledRem
 					label = "DODGE OFF"
@@ -1562,7 +1601,7 @@ local function renderPanel(panel, titleText, states)
 
 				if rem > 0 and label then
 					controlBar.Visible = true
-					local barsAbove = (drVisible and 1 or 0) + (spdVisible and 1 or 0) + (healVisible and 1 or 0) + (vulnVisible and 1 or 0)
+					local barsAbove = (drVisible and 1 or 0) + (spdVisible and 1 or 0) + (healVisible and 1 or 0) + (vulnVisible and 1 or 0) + (sealVisible and 1 or 0)
 					local y = 6 + (barsAbove * 24)
 					controlBar.Position = UDim2.new(0, 5, 0, y)
 

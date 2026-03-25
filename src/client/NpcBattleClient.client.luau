@@ -439,6 +439,7 @@ local uiState = {
 	speedBoostEndBySlot = {},
 	speedBoostMagBySlot = {},
 	speedBoostHbConn = nil,
+	sealEndBySlot = {},
 }
 
 local function clearDeckCardMappings()
@@ -916,6 +917,36 @@ local function createDeckCardView(cardId)
 	spdText.Text = "ATK SPD +0% · 0.0s"
 	spdText.Parent = spdBar
 
+	local sealBar = Instance.new("Frame")
+	sealBar.Name = "SealDebuffBar"
+	sealBar.Visible = false
+	sealBar.Size = UDim2.new(1, -12, 0, 22)
+	sealBar.Position = UDim2.new(0, 6, 0, 4)
+	sealBar.BackgroundColor3 = Color3.fromRGB(58, 42, 8)
+	sealBar.BackgroundTransparency = 0.08
+	sealBar.BorderSizePixel = 0
+	sealBar.ZIndex = 7
+	sealBar.Parent = frame
+	local sealCorner = Instance.new("UICorner")
+	sealCorner.CornerRadius = UDim.new(0, 7)
+	sealCorner.Parent = sealBar
+	local sealStroke = Instance.new("UIStroke")
+	sealStroke.Thickness = 1
+	sealStroke.Color = Color3.fromRGB(255, 210, 90)
+	sealStroke.Transparency = 0.22
+	sealStroke.Parent = sealBar
+	local sealText = Instance.new("TextLabel")
+	sealText.Name = "SealText"
+	sealText.Size = UDim2.fromScale(1, 1)
+	sealText.BackgroundTransparency = 1
+	sealText.Font = Enum.Font.GothamBold
+	sealText.TextSize = 12
+	sealText.TextColor3 = Color3.fromRGB(255, 235, 160)
+	sealText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	sealText.TextStrokeTransparency = 0.35
+	sealText.Text = "SEAL · abilities silenced · 0.0s"
+	sealText.Parent = sealBar
+
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Size = UDim2.new(1, -10, 0, 66)
 	nameLabel.Position = UDim2.fromOffset(5, 28)
@@ -1098,6 +1129,19 @@ local function playCardDeathAnimation(cardView)
 	end)
 end
 
+local function layoutDeckSealBar(cardView)
+	if not cardView then
+		return
+	end
+	local sealBar = cardView:FindFirstChild("SealDebuffBar")
+	local spdBar = cardView:FindFirstChild("AtkSpeedBuffBar")
+	if not sealBar or not sealBar.Visible then
+		return
+	end
+	local spdOn = spdBar and spdBar.Visible
+	sealBar.Position = spdOn and UDim2.new(0, 6, 0, 28) or UDim2.new(0, 6, 0, 4)
+end
+
 local function stopDeckSpeedBuffUi()
 	if uiState.speedBoostHbConn then
 		uiState.speedBoostHbConn:Disconnect()
@@ -1105,11 +1149,16 @@ local function stopDeckSpeedBuffUi()
 	end
 	uiState.speedBoostEndBySlot = {}
 	uiState.speedBoostMagBySlot = {}
+	uiState.sealEndBySlot = {}
 	for s = 1, 5 do
 		local cv = uiState.deckCardBySlot[s]
 		local b = cv and cv:FindFirstChild("AtkSpeedBuffBar")
 		if b then
 			b.Visible = false
+		end
+		local sb = cv and cv:FindFirstChild("SealDebuffBar")
+		if sb then
+			sb.Visible = false
 		end
 	end
 end
@@ -1132,6 +1181,23 @@ local function tickDeckSpeedBuffLabels()
 			else
 				local pct = math.floor(mag * 100 + 0.5)
 				txt.Text = string.format("ATK SPD +%d%% · %.1fs", pct, left)
+			end
+		end
+	end
+
+	for slotIndex, endClock in pairs(uiState.sealEndBySlot) do
+		local cardView = uiState.deckCardBySlot[slotIndex]
+		local sealBar = cardView and cardView:FindFirstChild("SealDebuffBar")
+		local txt = sealBar and sealBar:FindFirstChild("SealText")
+		if not (sealBar and txt and sealBar.Parent) then
+			uiState.sealEndBySlot[slotIndex] = nil
+		else
+			local left = math.max(0, (tonumber(endClock) or 0) - os.clock())
+			if left <= 0.05 then
+				sealBar.Visible = false
+				uiState.sealEndBySlot[slotIndex] = nil
+			else
+				txt.Text = string.format("SEAL · abilities silenced · %.1fs", left)
 			end
 		end
 	end
@@ -1166,6 +1232,26 @@ local function syncDeckSpeedBuffFromCardState(state, slotIndex, cardView)
 		uiState.speedBoostMagBySlot[slotIndex] = nil
 		spdBar.Visible = false
 	end
+	layoutDeckSealBar(cardView)
+end
+
+local function syncDeckSealFromCardState(state, slotIndex, cardView)
+	local sealBar = cardView:FindFirstChild("SealDebuffBar")
+	local sealText = sealBar and sealBar:FindFirstChild("SealText")
+	if not (sealBar and sealText) then
+		return
+	end
+	local rem = tonumber(state.sealRemainingSec) or 0
+	if rem > 0 then
+		uiState.sealEndBySlot[slotIndex] = os.clock() + rem
+		sealBar.Visible = true
+		sealText.Text = string.format("SEAL · abilities silenced · %.1fs", rem)
+		layoutDeckSealBar(cardView)
+		ensureDeckSpeedBuffHeartbeat()
+	else
+		uiState.sealEndBySlot[slotIndex] = nil
+		sealBar.Visible = false
+	end
 end
 
 local function applyPlayerCardStates(playerCardStates)
@@ -1194,15 +1280,21 @@ local function applyPlayerCardStates(playerCardStates)
 
 			if type(slotIndex) == "number" then
 				syncDeckSpeedBuffFromCardState(state, slotIndex, cardView)
+				syncDeckSealFromCardState(state, slotIndex, cardView)
 			end
 
 			if not alive then
 				if type(slotIndex) == "number" then
 					uiState.speedBoostEndBySlot[slotIndex] = nil
 					uiState.speedBoostMagBySlot[slotIndex] = nil
+					uiState.sealEndBySlot[slotIndex] = nil
 					local sb = cardView:FindFirstChild("AtkSpeedBuffBar")
 					if sb then
 						sb.Visible = false
+					end
+					local sealB = cardView:FindFirstChild("SealDebuffBar")
+					if sealB then
+						sealB.Visible = false
 					end
 				end
 				removeCardViewFromMappings(cardView)

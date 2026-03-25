@@ -78,7 +78,7 @@ local cardData = {
         Rarity = "Rare",
         ArtFitMode = "Fit",
         ArtAssetId = "rbxassetid://112767549806462",
-        AbilityId = "SealOneEnemyOnEntry",
+        AbilityId = "antimagic",
         AbilityCooldownSeconds = 10,
         Description = "When the battle starts, this card inflicts seal on one enemy for 10 seconds. Against cards containing Mage, he takes 50% reduced damage from them and when attacking Mage cards he has a 20% chance to inflict seal on them for ? seconds.",
     },

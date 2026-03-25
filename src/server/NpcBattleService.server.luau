@@ -325,6 +325,8 @@ local function buildPlayerCardStatePayload(session)
 		local spdUntil = tonumber(state.speedBoostUntil) or 0
 		local spdMag = tonumber(state.speedBoostMagnitude) or 0
 		local spdRem = (spdUntil > now and spdMag > 0) and (spdUntil - now) or 0
+		local sealUntil = tonumber(state.sealUntil) or 0
+		local sealRem = (sealUntil > now) and (sealUntil - now) or 0
 		table.insert(payload, {
 			slotIndex = state.slotIndex,
 			cardId = state.cardId,
@@ -336,6 +338,7 @@ local function buildPlayerCardStatePayload(session)
 			statBlock = statBlockOut,
 			speedBoostMagnitude = spdMag,
 			speedBoostRemainingSec = spdRem,
+			sealRemainingSec = sealRem,
 		})
 	end
 	return payload
