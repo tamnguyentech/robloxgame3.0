@@ -24,7 +24,10 @@ BattleProtocol.ActionType = {
 BattleProtocol.EventType = {
 	SessionStarted = "SessionStarted",
 	SessionEnded = "SessionEnded",
-	BossState = "BossState",
+	-- PvE battle tick + damage visuals (enemy is a generic NPC, not boss-only).
+	NpcState = "NpcState",
+	-- Legacy alias: same wire string as NpcState.
+	BossState = "NpcState",
 	ActionAccepted = "ActionAccepted",
 	Error = "Error",
 }

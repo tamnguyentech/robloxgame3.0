@@ -1,3 +1,4 @@
+-- Optional per-card combat stats (omit = 0 after merge). See CombatStatDefaults for semantics.
 local DEFAULT_CARD_TEMPLATE = {
     Attack = 50,
     Health = 120,
@@ -10,10 +11,20 @@ local DEFAULT_CARD_TEMPLATE = {
     HoverVideoAssetId = "",
     AbilityId = "",
     AbilityCooldownSeconds = 10,
+    CritChance = 0,
+    CritDamage = 0,
+    Accuracy = 0,
+    Dodge = 0,
+    DamageReduction = 0,
+    HealPower = 0,
+    CooldownReduction = 0,
+    Tenacity = 0,
 }
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BalanceConfig"))
+local CombatStatDefaults = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatStatDefaults"))
+local CardAbilityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardAbilityConfig"))
 
 -- Duplicate DEFAULT_CARD_TEMPLATE removed; definition is at top of file
 local CardDatabase = {}
@@ -235,12 +246,12 @@ local cardData = {
         Rarity = "Uncommon",
         ArtFitMode = "Fit",
         ArtAssetId = "rbxassetid://133628416601785",
-        AbilityId = "",
+        AbilityId = "WorldChampionsBluff",
         AbilityCooldownSeconds = 10,
         Description = "Rare custom card.",
     },
     ["natsu"] = {
-        Name = "Fire Salamander",
+        Name = "Salamander",
         Attack = 100000,
         Health = 500000,
         AttackIntervalSeconds = 5.0,
@@ -253,7 +264,7 @@ local cardData = {
         Description = "Epic custom card.",
     },
     ["saibaman"] = {
-        Name = "Explosive Plant ",
+        Name = "Explosive Plant",
         Attack = 1200,
         Health = 6000,
         AttackIntervalSeconds = 5.0,
@@ -266,7 +277,7 @@ local cardData = {
         Description = "Epic custom card.",
     },
     ["sakura"] = {
-        Name = "Pink Ninja",
+        Name = "Pink Medical Ninja",
         Attack = 140000,
         Health = 700000,
         AttackIntervalSeconds = 5.0,
@@ -422,7 +433,7 @@ local cardData = {
         Description = "Epic custom card.",
     },
     ["kidgoku"] = {
-        Name = "Earth's Defender (Kid)",
+        Name = "Earth's Warrior (Kid)",
         Attack = 38000,
         Health = 80000,
         AttackIntervalSeconds = 5.0,
@@ -487,7 +498,7 @@ local cardData = {
         Description = "Epic custom card.",
     },
     ["touma"] = {
-        Name = "Twoma",
+        Name = "Magic Eraser",
         Attack = 4800000,
         Health = 24000000,
         AttackIntervalSeconds = 5.0,
@@ -512,8 +523,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["SolarisWitch"] = {
-        Name = "Solaris Witch",
+    ["megumin"] = {
+        Name = "Exploison Mage",
         Attack = 110000000,
         Health = 80000000,
         AttackIntervalSeconds = 5.0,
@@ -525,8 +536,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["PsyKing"] = {
-        Name = "Psy King",
+    ["lelouch"] = {
+        Name = "Emperor of Miracles",
         Attack = 150000000,
         Health = 200000000,
         AttackIntervalSeconds = 5.0,
@@ -538,8 +549,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["TinTin"] = {
-        Name = "TinTin",
+    ["tien"] = {
+        Name = "Three-Eyed MartiaL Artist",
         Attack = 5600,
         Health = 28000,
         AttackIntervalSeconds = 5.0,
@@ -551,8 +562,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Hamcha"] = {
-        Name = "Hamcha",
+    ["yamcha"] = {
+        Name = "Wolf Martial Artist",
         Attack = 58000,
         Health = 290000,
         AttackIntervalSeconds = 5.0,
@@ -564,8 +575,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Chillin"] = {
-        Name = "Chillin",
+    ["krillin"] = {
+        Name = "Bald Martial Artist",
         Attack = 60000,
         Health = 300000,
         AttackIntervalSeconds = 5.0,
@@ -577,8 +588,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Bimibaru"] = {
-        Name = "Bimibaru",
+    ["kimimaru"] = {
+        Name = "Bone Ninja",
         Attack = 620000,
         Health = 3100000,
         AttackIntervalSeconds = 5.0,
@@ -590,8 +601,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Zaza"] = {
-        Name = "Zaza",
+    ["zabuza"] = {
+        Name = "Mist Swordsman Ninja",
         Attack = 640000,
         Health = 3200000,
         AttackIntervalSeconds = 5.0,
@@ -603,8 +614,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Kagara"] = {
-        Name = "Kagara",
+    ["gaara"] = {
+        Name = "Sand Ninja",
         Attack = 30000000,
         Health = 80000000,
         AttackIntervalSeconds = 5.0,
@@ -616,8 +627,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Legendary custom card.",
     },
-    ["Oshimoru"] = {
-        Name = "Oshimoru",
+    ["orochimaru"] = {
+        Name = "Snake Ninja",
         Attack = 45000000,
         Health = 56000000,
         AttackIntervalSeconds = 5.0,
@@ -629,8 +640,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Legendary custom card.",
     },
-    ["BeastNurudo"] = {
-        Name = "Beast Nurudo",
+    ["beastnaruto"] = {
+        Name = "Knucklehead Ninja (Beast)",
         Attack = 660000,
         Health = 3300000,
         AttackIntervalSeconds = 5.0,
@@ -642,8 +653,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Bakashi"] = {
-        Name = "Bakashi",
+    ["kakashi"] = {
+        Name = "Copycat Ninja",
         Attack = 680000,
         Health = 3400000,
         AttackIntervalSeconds = 5.0,
@@ -655,8 +666,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Deji"] = {
-        Name = "Deji",
+    ["neji"] = {
+        Name = "Gentle Fist Ninja",
         Attack = 70000,
         Health = 350000,
         AttackIntervalSeconds = 5.0,
@@ -668,8 +679,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Pocky"] = {
-        Name = "Pocky",
+    ["rocklee"] = {
+        Name = "Bushy Brow Ninja",
         Attack = 72000,
         Health = 360000,
         AttackIntervalSeconds = 5.0,
@@ -681,8 +692,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Narutobi"] = {
-        Name = "Narutobi",
+    ["sarutobi"] = {
+        Name = "Old Ninja Leader",
         Attack = 7400000,
         Health = 37000000,
         AttackIntervalSeconds = 5.0,
@@ -694,8 +705,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Shiniparu"] = {
-        Name = "Shiniparu",
+    ["shikimaru"] = {
+        Name = "Shadow Ninja",
         Attack = 760000,
         Health = 3800000,
         AttackIntervalSeconds = 5.0,
@@ -707,8 +718,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Koro"] = {
-        Name = "Koro",
+    ["zoro"] = {
+        Name = "Triple Wielding Swordsman",
         Attack = 78000,
         Health = 390000,
         AttackIntervalSeconds = 5.0,
@@ -720,8 +731,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["CursedZosuke"] = {
-        Name = "Cursed Zosuke",
+    ["cursedsasuke"] = {
+        Name = "Vengeance Seeking Ninja (Cursed)",
         Attack = 100000000,
         Health = 90000000,
         AttackIntervalSeconds = 5.0,
@@ -733,8 +744,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Pippolo"] = {
-        Name = "Pippolo",
+    ["piccolo"] = {
+        Name = "Green Alien Fighter",
         Attack = 82000,
         Health = 410000,
         AttackIntervalSeconds = 5.0,
@@ -746,8 +757,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Nakama"] = {
-        Name = "Nakama",
+    ["nappa"] = {
+        Name = "Bald Warrior",
         Attack = 84000,
         Health = 420000,
         AttackIntervalSeconds = 5.0,
@@ -759,8 +770,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Vegan"] = {
-        Name = "Vegan",
+    ["vegeta"] = {
+        Name = "Prince of Warriors",
         Attack = 86000,
         Health = 430000,
         AttackIntervalSeconds = 5.0,
@@ -772,8 +783,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Jinyu"] = {
-        Name = "Jinyu",
+    ["ginyu"] = {
+        Name = "Body Swapping Captain",
         Attack = 88000,
         Health = 440000,
         AttackIntervalSeconds = 5.0,
@@ -785,8 +796,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Freezer"] = {
-        Name = "Freezer",
+    ["frieza"] = {
+        Name = "Galactic Tyrant",
         Attack = 90000000,
         Health = 455000000,
         AttackIntervalSeconds = 5.0,
@@ -798,8 +809,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["SuperBoku"] = {
-        Name = "Super Boku",
+    ["supergoku"] = {
+        Name = "Earth's Warrior (Super)",
         Attack = 92000000,
         Health = 465000000,
         AttackIntervalSeconds = 5.0,
@@ -811,8 +822,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["LarrenYoger"] = {
-        Name = "Larren Yoger",
+    ["erenyeager"] = {
+        Name = "Attack Scout",
         Attack = 94000,
         Health = 470000,
         AttackIntervalSeconds = 5.0,
@@ -824,8 +835,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["BigGiant"] = {
-        Name = "Big Giant",
+    ["colossaltitan"] = {
+        Name = "Colossal Giant",
         Attack = 9600000,
         Health = 4800000,
         AttackIntervalSeconds = 5.0,
@@ -837,7 +848,7 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["ArmoredGiant"] = {
+    ["armoredtitan"] = {
         Name = "Armored Giant",
         Attack = 9800000,
         Health = 49000000,
@@ -850,8 +861,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["GorillaGiant"] = {
-        Name = "Gorilla Giant",
+    ["beasttitan"] = {
+        Name = "Beast Giant",
         Attack = 10000000,
         Health = 50000000,
         AttackIntervalSeconds = 5.0,
@@ -863,8 +874,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Revy"] = {
-        Name = "Revy",
+    ["levi"] = {
+        Name = "Strongest Scout",
         Attack = 10200000,
         Health = 5100000,
         AttackIntervalSeconds = 5.0,
@@ -877,7 +888,7 @@ local cardData = {
         Description = "Epic custom card.",
     },
     ["rui"] = {
-        Name = "Loui",
+        Name = "Spider Demon",
         Attack = 104000,
         Health = 520000,
         AttackIntervalSeconds = 5.0,
@@ -889,8 +900,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["GirlGiant"] = {
-        Name = "Girl Giant",
+    ["femaletitan"] = {
+        Name = "Female Giant",
         Attack = 10800000,
         Health = 54000000,
         AttackIntervalSeconds = 5.0,
@@ -903,7 +914,7 @@ local cardData = {
         Description = "Epic custom card.",
     },
     ["enmu"] = {
-        Name = "Inma",
+        Name = "Sleep Demon",
         Attack = 11000000,
         Health = 55000000,
         AttackIntervalSeconds = 5.0,
@@ -915,8 +926,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Giyutu"] = {
-        Name = "Giyutu",
+    ["gyutaro"] = {
+        Name = "Blood Sickle Demon",
         Attack = 11200000,
         Health = 56000000,
         AttackIntervalSeconds = 5.0,
@@ -954,8 +965,8 @@ local cardData = {
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
-    ["Wantengo"] = {
-        Name = "Wantengo",
+    ["hantengu"] = {
+        Name = "Emotion Demon",
         Attack = 11600000,
         Health = 58000000,
         AttackIntervalSeconds = 5.0,
@@ -968,7 +979,7 @@ local cardData = {
         Description = "Epic custom card.",
     },
     ["daki"] = {
-        Name = "Saki",
+        Name = "Sash Demon",
         Attack = 11600000,
         Health = 58000000,
         AttackIntervalSeconds = 5.0,
@@ -981,7 +992,7 @@ local cardData = {
         Description = "Epic custom card.",
     },
     ["gyokko"] = {
-        Name = "Kyoko",
+        Name = "Vase Demon",
         Attack = 11600000,
         Health = 58000000,
         AttackIntervalSeconds = 5.0,
@@ -994,7 +1005,7 @@ local cardData = {
         Description = "Epic custom card.",
     },
     ["mitsuri"] = {
-        Name = "Catsuri",
+        Name = "Love Swordswoman",
         Attack = 118000000,
         Health = 590000000,
         AttackIntervalSeconds = 5.0,
@@ -1007,7 +1018,7 @@ local cardData = {
         Description = "Epic custom card.",
     },
     ["inosuke"] = {
-        Name = "Boar Bandit",
+        Name = "Boar Swordsman",
         Attack = 35000000,
         Health = 90000000,
         AttackIntervalSeconds = 5.0,
@@ -1020,7 +1031,7 @@ local cardData = {
         Description = "Legendary custom card.",
     },
     ["nezuko"] = {
-        Name = "Yesuko",
+        Name = "Sister Demon",
         Attack = 12200000,
         Health = 61000000,
         AttackIntervalSeconds = 5.0,
@@ -1033,7 +1044,7 @@ local cardData = {
         Description = "Epic custom card.",
     },
     ["tanjiro"] = {
-        Name = "Banjoro",
+        Name = "Special Swordsman",
         Attack = 55000000,
         Health = 140000000,
         AttackIntervalSeconds = 5.0,
@@ -1046,7 +1057,7 @@ local cardData = {
         Description = "Legendary custom card.",
     },
     ["zenitsu"] = {
-        Name = "Tenzetsu",
+        Name = "Thunder Swordsman",
         Attack = 75000000,
         Health = 190000000,
         AttackIntervalSeconds = 5.0,
@@ -1059,7 +1070,7 @@ local cardData = {
         Description = "Legendary custom card.",
     },
     ["shinobu"] = {
-        Name = "Shinoko",
+        Name = "Insect Swordswoman",
         Attack = 80000000,
         Health = 200000000,
         AttackIntervalSeconds = 5.0,
@@ -1072,7 +1083,7 @@ local cardData = {
         Description = "Legendary custom card.",
     },
     ["muichiro"] = {
-        Name = "Mochirow",
+        Name = "Mist Swordsman",
         Attack = 85000000,
         Health = 210000000,
         AttackIntervalSeconds = 5.0,
@@ -1085,7 +1096,7 @@ local cardData = {
         Description = "Legendary custom card.",
     },
     ["rengoku"] = {
-        Name = "Ringkou",
+        Name = "Fire Swordsman",
         Attack = 90000000,
         Health = 220000000,
         AttackIntervalSeconds = 5.0,
@@ -1098,7 +1109,7 @@ local cardData = {
         Description = "Legendary custom card.",
     },
     ["tengen"] = {
-        Name = "Ninegen",
+        Name = "Sound Swordsman",
         Attack = 95000000,
         Health = 230000000,
         AttackIntervalSeconds = 5.0,
@@ -1111,7 +1122,7 @@ local cardData = {
         Description = "Legendary custom card.",
     },
     ["giyuu"] = {
-        Name = "Kiyou",
+        Name = "Water Swordsman",
         Attack = 100000000,
         Health = 240000000,
         AttackIntervalSeconds = 5.0,
@@ -1124,7 +1135,7 @@ local cardData = {
         Description = "Legendary custom card.",
     },
     ["asuna"] = {
-        Name = "Arune",
+        Name = "Sword Maiden",
         Attack = 12500,
         Health = 82500,
         AttackIntervalSeconds = 5.0,
@@ -1136,7 +1147,7 @@ local cardData = {
         AbilityCooldownSeconds = 12
     },
     ["misaamane"] = {
-        Name = "Lisa Enmane",
+        Name = "Eyes of Death",
         Attack = 98000,
         Health = 89000,
         AttackIntervalSeconds = 5.0,
@@ -1147,7 +1158,7 @@ local cardData = {
         AbilityId = "AttackDamageBoost",
         AbilityCooldownSeconds = 15
     },
-    ["ElfMage"] = {
+    ["frieren"] = {
         Name = "Elf Mage",
         Attack = 98000,
         Health = 89000,
@@ -1160,7 +1171,7 @@ local cardData = {
         AbilityCooldownSeconds = 15
     },
     ["power"] = {
-        Name = "Boawer",
+        Name = "Blood Fiend",
         Attack = 98000,
         Health = 89000,
         AttackIntervalSeconds = 5.0,
@@ -1172,7 +1183,7 @@ local cardData = {
         AbilityCooldownSeconds = 15
     },
     ["cc"] = {
-        Name = "Kiki",
+        Name = "Immortal Witch",
         Attack = 98000,
         Health = 89000,
         AttackIntervalSeconds = 5.0,
@@ -1184,7 +1195,7 @@ local cardData = {
         AbilityCooldownSeconds = 15
     },
     ["esdeath"] = {
-        Name = "Esla",
+        Name = "Ice Empress",
         Attack = 98000000,
         Health = 890000000,
         AttackIntervalSeconds = 5.0,
@@ -1196,7 +1207,7 @@ local cardData = {
         AbilityCooldownSeconds = 15
     },
     ["aqua"] = {
-        Name = "Water Princess",
+        Name = "Water Goddess",
         Attack = 13200,
         Health = 86000,
         AttackIntervalSeconds = 5.0,
@@ -1209,8 +1220,8 @@ local cardData = {
     },
     ["PerfectCell"] = {
         Name = "Perfect Cell",
-        Attack = 4000000,
-        Health = 10000000,
+        Attack = 4000,
+        Health = 100000000,
         AttackIntervalSeconds = 4.0,
         Category = "NPC",
         ArtFitMode = "Fit",
@@ -1719,6 +1730,68 @@ function CardDatabase.GetCardData(cardRef)
     return data
 end
 
+-- Resolved base card id for deck/combat, or nil. Exported for PvP deck sanitization.
+function CardDatabase.ResolveCardIdStrict(cardRef)
+    ensureCardDataReady()
+    return resolveCardIdStrict(cardRef)
+end
+
+--[[
+  Merged combat profile for server battle init: base ATK/HP/interval, ability ids, default secondary stats.
+  opts.foilChancePoints: when set, applies foil ATK/HP multipliers (PvE).
+]]
+function CardDatabase.GetCombatProfile(cardRef, opts)
+    ensureCardDataReady()
+    opts = type(opts) == "table" and opts or {}
+    local data = CardDatabase.GetCardData(cardRef)
+    if not data then
+        return nil
+    end
+    local atk = tonumber(data.Attack) or DEFAULT_CARD_TEMPLATE.Attack
+    atk = math.max(1, math.floor(atk))
+    local hp = tonumber(data.Health)
+    if not hp then
+        hp = math.max(60, atk)
+    else
+        hp = math.max(1, math.floor(hp))
+    end
+    local interval = math.max(0.5, tonumber(data.AttackIntervalSeconds) or DEFAULT_CARD_TEMPLATE.AttackIntervalSeconds)
+    if opts.foilChancePoints ~= nil then
+        local m = CardDatabase.GetFoilStatMultipliers(cardRef, opts.foilChancePoints)
+        atk = math.max(1, math.floor(atk * (tonumber(m.AtkMultiplier) or 1)))
+        hp = math.max(1, math.floor(hp * (tonumber(m.HpMultiplier) or 1)))
+    end
+    local abilityId = (type(data.AbilityId) == "string") and data.AbilityId or ""
+    local abilityDef = CardAbilityConfig.GetAbility(abilityId)
+    local abilityCooldownSeconds = math.max(
+        1,
+        tonumber(data.AbilityCooldownSeconds) or tonumber(abilityDef and abilityDef.DefaultCooldownSeconds) or 10
+    )
+    local statBlock = CombatStatDefaults.ExtractStatBlockFromCardRow(data)
+    return {
+        cardName = type(data.Name) == "string" and data.Name or cardRef,
+        baseAttack = atk,
+        maxHealth = hp,
+        attackIntervalSeconds = interval,
+        baseAttackIntervalSeconds = interval,
+        abilityId = abilityId,
+        abilityCooldownSeconds = abilityCooldownSeconds,
+        statBlock = statBlock,
+    }
+end
+
+-- PvE NPC counter-attack interval from card data.
+function CardDatabase.GetNpcCounterAttackIntervalSeconds(npcCardId, fallbackSeconds)
+    local fb = math.max(0.5, tonumber(fallbackSeconds) or 4)
+    local profile = CardDatabase.GetCombatProfile(npcCardId, nil)
+    if not profile then
+        return fb
+    end
+    return math.max(0.5, tonumber(profile.baseAttackIntervalSeconds) or fb)
+end
+
+CardDatabase.GetBossCounterAttackIntervalSeconds = CardDatabase.GetNpcCounterAttackIntervalSeconds
+
 function CardDatabase.IsBorderedCard(cardRef)
     local parsed = CardDatabase.ParseCardReference(cardRef)
     return parsed ~= nil and parsed.IsBordered == true
@@ -1877,7 +1950,7 @@ function CardDatabase.RegisterCard(cardId, data)
         return false, "Missing required fields: Name, Attack, Category"
     end
 
-    cardData[cardId] = {
+    local row = {
         Name = data.Name,
         Attack = data.Attack,
         Health = sanitizeHealth(data.Health, data.Attack),
@@ -1892,6 +1965,14 @@ function CardDatabase.RegisterCard(cardId, data)
         AbilityCooldownSeconds = sanitizeAbilityCooldownSeconds(data.AbilityCooldownSeconds),
         IsSpecialVideoCard = data.IsSpecialVideoCard == true,
     }
+    local mergedCombat = CombatStatDefaults.ExtractStatBlockFromCardRow(data)
+    local defaultsCombat = CombatStatDefaults.GetDefaultStatBlock()
+    for k in pairs(defaultsCombat) do
+        if mergedCombat[k] ~= defaultsCombat[k] then
+            row[k] = mergedCombat[k]
+        end
+    end
+    cardData[cardId] = row
     cardDataReady = true
     return true, "Registered"
 end

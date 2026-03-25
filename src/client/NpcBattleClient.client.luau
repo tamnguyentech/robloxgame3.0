@@ -14,8 +14,8 @@ local HoloFoilController = require(script.Parent.ui.effects:WaitForChild("HoloFo
 local RainbowBorderStroke = require(script.Parent.ui.effects:WaitForChild("RainbowBorderStroke"))
 local ClientStateManager = require(script.Parent.core:WaitForChild("ClientStateManager"))
 local DeviceContext = require(script.Parent.core:WaitForChild("DeviceContext"))
--- Move the boss card (Perfect Cell) up when hit
--- (Removed boss card hit movement logic)
+local DamageNumberView = require(script.Parent.ui:WaitForChild("DamageNumberView"))
+-- PvE enemy card (NPC) hit feedback
 -- Removed unused cardArtFolder assignment
 
 local function waitForRemote(folder, remoteName)
@@ -417,9 +417,9 @@ local uiState = {
 	sessionId = nil,
 	deckSnapshot = {},
 	gui = nil,
-	bossHpLabel = nil,
-	bossNameLabel = nil,
-	bossCardFrame = nil,
+	npcEnemyHpLabel = nil,
+	npcEnemyNameLabel = nil,
+	npcEnemyCardFrame = nil,
 	rootFrame = nil,
 	deckRowFrame = nil,
 	exitButton = nil,
@@ -496,90 +496,87 @@ local function createBattleGui(payload)
 	root.BorderSizePixel = 0
 	root.Parent = gui
 
-	local bossCard = Instance.new("Frame")
-	bossCard.Name = "BossCard"
-	bossCard.AnchorPoint = Vector2.new(0.5, 0)
-	bossCard.Size = UDim2.fromOffset(200, 240) -- Make the NPC card frame smaller
-	bossCard.Position = UDim2.new(0.5, 0, 0, 40) -- Move the NPC card further down
-	bossCard.BackgroundColor3 = Color3.fromRGB(28, 20, 20)
-	bossCard.BorderSizePixel = 0
-	bossCard.ClipsDescendants = false
-	bossCard.Parent = root
-	bossCard:SetAttribute("IsNpcCard", true)
+	local npcEnemyCard = Instance.new("Frame")
+	npcEnemyCard.Name = "NpcEnemyCard"
+	npcEnemyCard.AnchorPoint = Vector2.new(0.5, 0)
+	npcEnemyCard.Size = UDim2.fromOffset(200, 240) -- Make the NPC card frame smaller
+	npcEnemyCard.Position = UDim2.new(0.5, 0, 0, 40) -- Move the NPC card further down
+	npcEnemyCard.BackgroundColor3 = Color3.fromRGB(28, 20, 20)
+	npcEnemyCard.BorderSizePixel = 0
+	npcEnemyCard.ClipsDescendants = false
+	npcEnemyCard.Parent = root
+	npcEnemyCard:SetAttribute("IsNpcCard", true)
 
-	local bossCorner = Instance.new("UICorner")
-	bossCorner.CornerRadius = UDim.new(0, 12)
-	bossCorner.Parent = bossCard
+	local npcCorner = Instance.new("UICorner")
+	npcCorner.CornerRadius = UDim.new(0, 12)
+	npcCorner.Parent = npcEnemyCard
 
-	local bossStroke = Instance.new("UIStroke")
-	bossStroke.Thickness = 2
-	bossStroke.Color = Color3.fromRGB(186, 70, 70)
-	bossStroke.Transparency = 0.1
-	bossStroke.Parent = bossCard
+	local npcStroke = Instance.new("UIStroke")
+	npcStroke.Thickness = 2
+	npcStroke.Color = Color3.fromRGB(186, 70, 70)
+	npcStroke.Transparency = 0.1
+	npcStroke.Parent = npcEnemyCard
 
-	local bossArt = Instance.new("ImageLabel")
-	bossArt.Name = "BossArt"
-	bossArt.Size = UDim2.fromScale(1, 1)
-	bossArt.Position = UDim2.new(0, 0, 0, 0)
-	bossArt.BackgroundTransparency = 1
-	bossArt.BorderSizePixel = 0
-	bossArt.ScaleType = Enum.ScaleType.Stretch
-	bossArt.ClipsDescendants = true -- Only clip card art, not the card frame
-	bossArt.Image = "" -- will be set below
-	bossArt.Parent = bossCard
+	local npcArt = Instance.new("ImageLabel")
+	npcArt.Name = "NpcEnemyArt"
+	npcArt.Size = UDim2.fromScale(1, 1)
+	npcArt.Position = UDim2.new(0, 0, 0, 0)
+	npcArt.BackgroundTransparency = 1
+	npcArt.BorderSizePixel = 0
+	npcArt.ScaleType = Enum.ScaleType.Stretch
+	npcArt.ClipsDescendants = true -- Only clip card art, not the card frame
+	npcArt.Image = "" -- will be set below
+	npcArt.Parent = npcEnemyCard
 
-	-- Boss name at top
-	local bossTitle = Instance.new("TextLabel")
-	bossTitle.Name = "BossTitle"
-	bossTitle.Size = UDim2.new(1, -20, 0, 52)
-	bossTitle.Position = UDim2.fromOffset(10, 8)
-	bossTitle.BackgroundTransparency = 1
-	bossTitle.Text = "Boss"
-	bossTitle.TextColor3 = Color3.fromRGB(245, 245, 245)
-	bossTitle.Font = Enum.Font.Fantasy
-	bossTitle.TextSize = 30
-	bossTitle.TextWrapped = true
-	bossTitle.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	bossTitle.TextStrokeTransparency = 0.2
-	bossTitle.Parent = bossCard
+	local npcTitle = Instance.new("TextLabel")
+	npcTitle.Name = "NpcEnemyTitle"
+	npcTitle.Size = UDim2.new(1, -20, 0, 52)
+	npcTitle.Position = UDim2.fromOffset(10, 8)
+	npcTitle.BackgroundTransparency = 1
+	npcTitle.Text = "Foe"
+	npcTitle.TextColor3 = Color3.fromRGB(245, 245, 245)
+	npcTitle.Font = Enum.Font.Fantasy
+	npcTitle.TextSize = 30
+	npcTitle.TextWrapped = true
+	npcTitle.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	npcTitle.TextStrokeTransparency = 0.2
+	npcTitle.Parent = npcEnemyCard
 
-	-- Set bossArt.Image to ArtAssetId from database using the correct boss cardId
 	local cardDatabaseModule = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
-	local bossCardId = payload and payload.bossCardId or "PerfectCell"
-	local bossData = cardDatabaseModule.GetCardData and cardDatabaseModule.GetCardData(bossCardId)
-	if bossData and type(bossData.ArtAssetId) == "string" and bossData.ArtAssetId ~= "" then
-		bossArt.Image = bossData.ArtAssetId
+	local npcCardId = payload and payload.npcCardId or "PerfectCell"
+	local npcRow = cardDatabaseModule.GetCardData and cardDatabaseModule.GetCardData(npcCardId)
+	if npcRow and type(npcRow.ArtAssetId) == "string" and npcRow.ArtAssetId ~= "" then
+		npcArt.Image = npcRow.ArtAssetId
 	end
-    -- Ensure CardId attribute is set for animation logic
-    bossCard:SetAttribute("CardId", bossCardId)
+	npcEnemyCard:SetAttribute("CardId", npcCardId)
 
-	local bossHp = Instance.new("TextLabel")
-	bossHp.Name = "BossHp"
-	bossHp.Size = UDim2.new(1, -20, 0, 36)
-	bossHp.Position = UDim2.fromOffset(10, 68)
-	bossHp.BackgroundTransparency = 1
-	bossHp.Text = "HP: 0 / 0"
-	bossHp.TextColor3 = Color3.fromRGB(255, 130, 130)
-	bossHp.Font = Enum.Font.SourceSansBold
-	bossHp.TextSize = 24
-	bossHp.TextXAlignment = Enum.TextXAlignment.Center
-	bossHp.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	bossHp.TextStrokeTransparency = 0.25
-	bossHp.Parent = bossCard
+	local npcHp = Instance.new("TextLabel")
+	npcHp.Name = "NpcEnemyHp"
+	npcHp.Size = UDim2.new(1, -20, 0, 36)
+	npcHp.Position = UDim2.fromOffset(10, 68)
+	npcHp.BackgroundTransparency = 1
+	npcHp.Text = "HP: 0 / 0"
+	npcHp.TextColor3 = Color3.fromRGB(255, 130, 130)
+	npcHp.Font = Enum.Font.SourceSansBold
+	npcHp.TextSize = 24
+	npcHp.TextXAlignment = Enum.TextXAlignment.Center
+	npcHp.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	npcHp.TextStrokeTransparency = 0.25
+	npcHp.Parent = npcEnemyCard
 
-	local bossHint = Instance.new("TextLabel")
-	bossHint.Name = "BossHint"
-	bossHint.Size = UDim2.new(1, -20, 0, 28)
-	bossHint.Position = UDim2.new(0, 10, 1, -36)
-	bossHint.BackgroundTransparency = 1
-	bossHint.Text = "Your card attack speeds vary"
-	bossHint.TextColor3 = Color3.fromRGB(220, 220, 220)
-	bossHint.Font = Enum.Font.SourceSans
-	bossHint.TextSize = 20
-	bossHint.TextXAlignment = Enum.TextXAlignment.Center
-	bossHint.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	bossHint.TextStrokeTransparency = 0.3
-	bossHint.Parent = bossCard
+	local npcHint = Instance.new("TextLabel")
+	npcHint.Name = "NpcEnemyHint"
+	npcHint.Size = UDim2.new(1, -20, 0, 28)
+	npcHint.Position = UDim2.new(0, 10, 1, -36)
+	npcHint.BackgroundTransparency = 1
+	npcHint.Text = "Your card attack speeds vary"
+	npcHint.TextColor3 = Color3.fromRGB(220, 220, 220)
+	npcHint.Font = Enum.Font.SourceSans
+	npcHint.TextSize = 20
+	npcHint.TextXAlignment = Enum.TextXAlignment.Center
+	npcHint.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	npcHint.TextStrokeTransparency = 0.3
+	npcHint.Parent = npcEnemyCard
 
 	local deckRow = Instance.new("Frame")
 	deckRow.Name = "DeckRow"
@@ -643,9 +640,9 @@ local function createBattleGui(payload)
 	uiState.gui = gui
 	uiState.rootFrame = root
 	uiState.deckRowFrame = deckRow
-	uiState.bossHpLabel = bossHp
-	uiState.bossNameLabel = bossTitle
-	uiState.bossCardFrame = bossCard
+	uiState.npcEnemyHpLabel = npcHp
+	uiState.npcEnemyNameLabel = npcTitle
+	uiState.npcEnemyCardFrame = npcEnemyCard
 	uiState.exitButton = exitButton
 
 	local hitSound = Instance.new("Sound")
@@ -662,12 +659,12 @@ local function createBattleGui(payload)
 	playerAttackSound.RollOffMaxDistance = 40
 	playerAttackSound.Parent = gui
 
-	local bossHitSound = Instance.new("Sound")
-	bossHitSound.Name = "BossAttackSound"
-	bossHitSound.SoundId = BOSS_HIT_SOUND_ASSET
-	bossHitSound.Volume = 0.3
-	bossHitSound.RollOffMaxDistance = 44
-	bossHitSound.Parent = gui
+	local npcEnemyAttackSound = Instance.new("Sound")
+	npcEnemyAttackSound.Name = "NpcEnemyAttackSound"
+	npcEnemyAttackSound.SoundId = BOSS_HIT_SOUND_ASSET
+	npcEnemyAttackSound.Volume = 0.3
+	npcEnemyAttackSound.RollOffMaxDistance = 44
+	npcEnemyAttackSound.Parent = gui
 
 	exitButton.MouseButton1Click:Connect(function()
 		if not uiState.sessionId then
@@ -1048,9 +1045,9 @@ local function animateSingleDeckAttack(attackerSlotIndex, attackerCardId)
 	end
 
 	local root = uiState.rootFrame
-	local bossCard = uiState.bossCardFrame
+	local npcEnemyCard = uiState.npcEnemyCardFrame
 	local deckRow = uiState.deckRowFrame
-	if not (root and root.Parent and bossCard and bossCard.Parent and deckRow and deckRow.Parent) then
+	if not (root and root.Parent and npcEnemyCard and npcEnemyCard.Parent and deckRow and deckRow.Parent) then
 		return
 	end
 
@@ -1060,10 +1057,10 @@ local function animateSingleDeckAttack(attackerSlotIndex, attackerCardId)
 	cardView:SetAttribute("IsAnimatingAttack", true)
 
 	local startAbs = cardView.AbsolutePosition + (cardView.AbsoluteSize * 0.5)
-	local bossAbs = bossCard.AbsolutePosition + (bossCard.AbsoluteSize * 0.5)
+	local npcAbs = npcEnemyCard.AbsolutePosition + (npcEnemyCard.AbsoluteSize * 0.5)
 	local rootAbs = root.AbsolutePosition
 	local startLocal = startAbs - rootAbs
-	local targetLocal = Vector2.new(bossAbs.X - rootAbs.X, bossAbs.Y - rootAbs.Y + 42)
+	local targetLocal = Vector2.new(npcAbs.X - rootAbs.X, npcAbs.Y - rootAbs.Y + 42)
 
 	local originalLayoutOrder = cardView.LayoutOrder
 	local originalSize = cardView.Size
@@ -1119,14 +1116,14 @@ local function animateSingleDeckAttack(attackerSlotIndex, attackerCardId)
 		end
 
 		local flash = Instance.new("Frame")
-		flash.Name = "BossHitFlash"
+		flash.Name = "NpcHitFlash"
 		flash.Size = UDim2.fromScale(1, 1)
 		flash.Position = UDim2.fromOffset(0, 0)
 		flash.BackgroundColor3 = Color3.fromRGB(255, 160, 160)
 		flash.BackgroundTransparency = 0.5
 		flash.BorderSizePixel = 0
 		flash.ZIndex = 90
-		flash.Parent = bossCard
+		flash.Parent = npcEnemyCard
 
 		local flashCorner = Instance.new("UICorner")
 		flashCorner.CornerRadius = UDim.new(0, 12)
@@ -1268,7 +1265,7 @@ local function animateSingleDeckAttack(attackerSlotIndex, attackerCardId)
 	end)
 end
 
-local function playBossHitEffects(targetCard)
+local function playNpcHitEffects(targetCard)
 	local root = uiState.rootFrame
 	if not (targetCard and targetCard.Parent and root and root.Parent) then
 		return
@@ -1280,7 +1277,7 @@ local function playBossHitEffects(targetCard)
 
 	for i = 1, 24 do -- double the spikes
 		local spike = Instance.new("Frame")
-		spike.Name = "BossHitSpike"
+		spike.Name = "NpcHitSpike"
 		spike.AnchorPoint = Vector2.new(0.5, 0.5)
 		spike.BorderSizePixel = 0
 		spike.BackgroundColor3 = (i % 2 == 0) and Color3.fromRGB(255, 40, 40) or Color3.fromRGB(94, 0, 0)
@@ -1332,8 +1329,8 @@ local function playBossHitEffects(targetCard)
 	emitWorldParticleBurst(Color3.fromRGB(255, 30, 30), 48, 6) -- more, closer particles
 end
 
-local function playBossAttackSound()
-	local soundTemplate = uiState.gui and uiState.gui:FindFirstChild("BossAttackSound")
+local function playNpcEnemyAttackSound()
+	local soundTemplate = uiState.gui and uiState.gui:FindFirstChild("NpcEnemyAttackSound")
 	if soundTemplate and soundTemplate:IsA("Sound") then
 		if soundTemplate.IsPlaying then
 			soundTemplate:Stop()
@@ -1343,28 +1340,27 @@ local function playBossAttackSound()
 	end
 end
 
-local function animateBossAttack(targetSlotIndex, targetCardId)
-	local bossCard = uiState.bossCardFrame
+local function animateNpcEnemyAttack(targetSlotIndex, targetCardId)
+	local npcEnemyCard = uiState.npcEnemyCardFrame
 	local root = uiState.rootFrame
-	if not (bossCard and bossCard.Parent and root and root.Parent) then
+	if not (npcEnemyCard and npcEnemyCard.Parent and root and root.Parent) then
 		return
 	end
 
-	if bossCard:GetAttribute("IsAnimatingAttack") then
+	if npcEnemyCard:GetAttribute("IsAnimatingAttack") then
 		return
 	end
-	bossCard:SetAttribute("IsAnimatingAttack", true)
+	npcEnemyCard:SetAttribute("IsAnimatingAttack", true)
 
-	-- Play sprite animation on bossArt for Perfect Cell (non-blocking)
-	local bossArt = bossCard:FindFirstChild("BossArt")
-	print("[DEBUG] animateBossAttack called for boss card.")
-	if bossArt then
-		print("[DEBUG] BossArt found.")
+	local npcArt = npcEnemyCard:FindFirstChild("NpcEnemyArt")
+	print("[DEBUG] animateNpcEnemyAttack called for NPC card.")
+	if npcArt then
+		print("[DEBUG] NpcEnemyArt found.")
 	else
-		print("[DEBUG] BossArt not found.")
+		print("[DEBUG] NpcEnemyArt not found.")
 	end
-	if uiState.bossNameLabel then
-		print("[DEBUG] Boss name label text:", uiState.bossNameLabel.Text)
+	if uiState.npcEnemyNameLabel then
+		print("[DEBUG] NPC name label text:", uiState.npcEnemyNameLabel.Text)
 	end
 
 	local targetCard = nil
@@ -1378,7 +1374,7 @@ local function animateBossAttack(targetSlotIndex, targetCardId)
 		end
 	end
 
-	local originalPos = bossCard.Position
+	local originalPos = npcEnemyCard.Position
 	local targetPos = nil
 	if targetCard and targetCard.Parent then
 		local rootAbs = root.AbsolutePosition
@@ -1388,25 +1384,25 @@ local function animateBossAttack(targetSlotIndex, targetCardId)
 		targetPos = UDim2.new(0.5, 0, 0, 84)
 	end
 
-	print("[DEBUG] BossCard original position:", tostring(originalPos))
-	print("[DEBUG] BossCard target position:", tostring(targetPos))
+	print("[DEBUG] NpcEnemyCard original position:", tostring(originalPos))
+	print("[DEBUG] NpcEnemyCard target position:", tostring(targetPos))
 	local dash = TweenService:Create(
-		bossCard,
+		npcEnemyCard,
 		TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), -- slowed by half
 		{Position = targetPos}
 	)
-	playBossAttackSound()
+	playNpcEnemyAttackSound()
 	dash:Play()
 	dash.Completed:Connect(function()
-		print("[DEBUG] BossCard reached target position:", tostring(bossCard.Position))
+		print("[DEBUG] NpcEnemyCard reached target position:", tostring(npcEnemyCard.Position))
 		local playerGui = game.Players.LocalPlayer:FindFirstChild("PlayerGui")
 		local animLayer = playerGui and playerGui:FindFirstChild("BattleAnimLayer")
 		local animRoot = animLayer and animLayer:FindFirstChild("AnimRoot")
 		if animRoot then
 			local VFXController = require(script.Parent.vfx.VFXController)
-			print("[DEBUG] bossCardFrame CardId attribute:", uiState.bossCardFrame and uiState.bossCardFrame:GetAttribute("CardId"))
+			print("[DEBUG] npcEnemyCardFrame CardId attribute:", uiState.npcEnemyCardFrame and uiState.npcEnemyCardFrame:GetAttribute("CardId"))
 
-			local bossAnimations = {
+			local npcCardAnimations = {
 				Aokoji = function()
 					print("[DEBUG] Triggering ice animation for Aokoji")
 					VFXController.playMultiSpriteSequenceOnce(animRoot, {
@@ -1434,30 +1430,30 @@ local function animateBossAttack(targetSlotIndex, targetCardId)
 				end
 			}
 
-			local bossCardId = uiState.bossCardFrame and uiState.bossCardFrame:GetAttribute("CardId")
-			if bossCardId and bossAnimations[bossCardId] then
-				bossAnimations[bossCardId]()
+			local animCardId = uiState.npcEnemyCardFrame and uiState.npcEnemyCardFrame:GetAttribute("CardId")
+			if animCardId and npcCardAnimations[animCardId] then
+				npcCardAnimations[animCardId]()
 			end
 		end
 		if targetCard and targetCard.Parent then
-			playBossHitEffects(targetCard)
+			playNpcHitEffects(targetCard)
 		end
 
 		local retreat = TweenService:Create(
-			bossCard,
+			npcEnemyCard,
 			TweenInfo.new(0.48, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), -- slowed by half
 			{Position = originalPos}
 		)
 		retreat:Play()
 		retreat.Completed:Connect(function()
-			print("[DEBUG] BossCard retreated to original position:", tostring(bossCard.Position))
-			bossCard:SetAttribute("IsAnimatingAttack", false)
+			print("[DEBUG] NpcEnemyCard retreated to original position:", tostring(npcEnemyCard.Position))
+			npcEnemyCard:SetAttribute("IsAnimatingAttack", false)
 			print("[DEBUG] IsAnimatingAttack reset to false.")
 		end)
 		-- Safety: forcibly reset IsAnimatingAttack after 1s in case tween fails
 		task.delay(1, function()
-			if bossCard:GetAttribute("IsAnimatingAttack") then
-				bossCard:SetAttribute("IsAnimatingAttack", false)
+			if npcEnemyCard:GetAttribute("IsAnimatingAttack") then
+				npcEnemyCard:SetAttribute("IsAnimatingAttack", false)
 				print("[DEBUG] IsAnimatingAttack forcibly reset after delay.")
 			end
 		end)
@@ -1873,63 +1869,61 @@ local function playAbilityEvents(payload)
 	end
 end
 
-local function setBossHeader(payload)
-	if not uiState.bossNameLabel then
+local function setNpcEnemyHeader(payload)
+	if not uiState.npcEnemyNameLabel then
 		return
 	end
-	uiState.bossNameLabel.Text = tostring(payload.bossCardName or "Boss")
+	uiState.npcEnemyNameLabel.Text = tostring(payload.npcCardName or "Foe")
 end
 
-local function setBossHp(payload)
-	if not uiState.bossHpLabel then
+local function setNpcEnemyHp(payload)
+	if not uiState.npcEnemyHpLabel then
 		return
 	end
-	local hp = math.max(0, math.floor(tonumber(payload.bossHealth) or 0))
-	local maxHp = math.max(1, math.floor(tonumber(payload.bossMaxHealth) or 1))
-	uiState.bossHpLabel.Text = string.format("HP: %s / %s", CardDatabase.FormatAttack(hp), CardDatabase.FormatAttack(maxHp))
+	local hp = math.max(0, math.floor(tonumber(payload.npcHealth) or 0))
+	local maxHp = math.max(1, math.floor(tonumber(payload.npcMaxHealth) or 1))
+	uiState.npcEnemyHpLabel.Text = string.format("HP: %s / %s", CardDatabase.FormatAttack(hp), CardDatabase.FormatAttack(maxHp))
 end
 
-local function setBossHint(payload)
-	local bossHint = uiState.bossCardFrame and uiState.bossCardFrame:FindFirstChild("BossHint")
-	if not (bossHint and bossHint:IsA("TextLabel")) then
+local function setNpcEnemyHint(payload)
+	local hint = uiState.npcEnemyCardFrame and uiState.npcEnemyCardFrame:FindFirstChild("NpcEnemyHint")
+	if not (hint and hint:IsA("TextLabel")) then
 		return
 	end
-	local displayedAttack = tonumber(payload and payload.bossAttack)
+	local displayedAttack = tonumber(payload and payload.npcAttack)
 	if not displayedAttack then
 		displayedAttack = 1500000
 	end
-	bossHint.Text = string.format("Boss ATK: %s | Auto battle", CardDatabase.FormatAttack(displayedAttack))
+	hint.Text = string.format("NPC ATK: %s | Auto battle", CardDatabase.FormatAttack(displayedAttack))
 end
 
 local function showBattleUi(payload)
 	local gui = createBattleGui(payload)
-	-- Always update CardId attribute for boss card frame
-	if uiState.bossCardFrame and payload and payload.bossCardId then
-		uiState.bossCardFrame:SetAttribute("CardId", payload.bossCardId)
-        -- Always update bossArt.Image for correct boss card
-        local cardDatabaseModule = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
-        local bossArt = uiState.bossCardFrame:FindFirstChild("BossArt")
-        local bossData = cardDatabaseModule.GetCardData and cardDatabaseModule.GetCardData(payload.bossCardId)
-        if bossArt and bossData and type(bossData.ArtAssetId) == "string" and bossData.ArtAssetId ~= "" then
-            bossArt.Image = bossData.ArtAssetId
-        end
+	if uiState.npcEnemyCardFrame and payload and payload.npcCardId then
+		uiState.npcEnemyCardFrame:SetAttribute("CardId", payload.npcCardId)
+		local cardDatabaseModule = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+		local npcArt = uiState.npcEnemyCardFrame:FindFirstChild("NpcEnemyArt")
+		local npcRow = cardDatabaseModule.GetCardData and cardDatabaseModule.GetCardData(payload.npcCardId)
+		if npcArt and npcRow and type(npcRow.ArtAssetId) == "string" and npcRow.ArtAssetId ~= "" then
+			npcArt.Image = npcRow.ArtAssetId
+		end
 	end
 	gui.Enabled = true
 	uiState.sessionId = payload.sessionId
-	setBossHeader(payload)
-	setBossHp(payload)
-	setBossHint(payload)
+	setNpcEnemyHeader(payload)
+	setNpcEnemyHp(payload)
+	setNpcEnemyHint(payload)
 end
 
 local function showBattleUiLoading(invitePayload)
 	local gui = createBattleGui()
 	gui.Enabled = true
 	uiState.sessionId = nil
-	if uiState.bossNameLabel then
-		uiState.bossNameLabel.Text = tostring(invitePayload and invitePayload.npcName or "Boss")
+	if uiState.npcEnemyNameLabel then
+		uiState.npcEnemyNameLabel.Text = tostring(invitePayload and invitePayload.npcName or "Foe")
 	end
-	if uiState.bossHpLabel then
-		uiState.bossHpLabel.Text = "Preparing battle..."
+	if uiState.npcEnemyHpLabel then
+		uiState.npcEnemyHpLabel.Text = "Preparing battle..."
 	end
 end
 
@@ -1986,8 +1980,8 @@ local function submitDeckSnapshotWithRetry(expectedSessionId, attempt)
 	renderDeckRow(uiState.deckSnapshot)
 
 	if #uiState.deckSnapshot == 0 and attempt < MAX_DECK_SYNC_RETRIES then
-		if uiState.bossHpLabel then
-			uiState.bossHpLabel.Text = "Syncing combat deck..."
+		if uiState.npcEnemyHpLabel then
+			uiState.npcEnemyHpLabel.Text = "Syncing combat deck..."
 		end
 		task.delay(DECK_SYNC_RETRY_DELAY, function()
 			submitDeckSnapshotWithRetry(expectedSessionId, attempt + 1)
@@ -2034,14 +2028,43 @@ battleStateEvent.OnClientEvent:Connect(function(payload)
 		submitDeckSnapshotWithRetry(payload.sessionId, 1)
 	end
 
-	if payload.eventType == BattleProtocol.EventType.BossState then
-		setBossHp(payload)
-		setBossHint(payload)
-		if (tonumber(payload.dealtDamage) or 0) > 0 then
+	if payload.eventType == BattleProtocol.EventType.NpcState then
+		setNpcEnemyHp(payload)
+		setNpcEnemyHint(payload)
+		local dealtToNpc = tonumber(payload.dealtDamage) or 0
+		if dealtToNpc > 0 then
 			animateSingleDeckAttack(payload.attackerSlotIndex, payload.attackerCardId)
+			-- Defer one frame: layout/AbsolutePosition stable; parent to Root so DeckRow does not cover the text.
+			task.defer(function()
+				local root = uiState.rootFrame
+				local npcCard = uiState.npcEnemyCardFrame
+				if root and root.Parent and npcCard and npcCard.Parent then
+					DamageNumberView.showFloatingOnRoot(root, npcCard, dealtToNpc, "PlayerToNpc")
+				end
+			end)
 		end
-		if (tonumber(payload.bossAttackDealtDamage) or 0) > 0 then
-			animateBossAttack(payload.bossAttackTargetSlotIndex, payload.bossAttackTargetCardId)
+		local dealtFromNpc = tonumber(payload.npcAttackDealtDamage) or 0
+		if dealtFromNpc > 0 then
+			animateNpcEnemyAttack(payload.npcAttackTargetSlotIndex, payload.npcAttackTargetCardId)
+			local targetCard = nil
+			if type(payload.npcAttackTargetSlotIndex) == "number" then
+				targetCard = uiState.deckCardBySlot[payload.npcAttackTargetSlotIndex]
+			end
+			if not targetCard and type(payload.npcAttackTargetCardId) == "string" then
+				local list = uiState.deckCardsById[payload.npcAttackTargetCardId]
+				if list and #list > 0 then
+					targetCard = list[1]
+				end
+			end
+			if targetCard then
+				local dmg = dealtFromNpc
+				task.defer(function()
+					local root = uiState.rootFrame
+					if root and root.Parent and targetCard and targetCard.Parent then
+						DamageNumberView.showFloatingOnRoot(root, targetCard, dmg, "NpcToPlayer")
+					end
+				end)
+			end
 		end
 		applyPlayerCardStates(payload.playerCardStates)
 		playAbilityEvents(payload)

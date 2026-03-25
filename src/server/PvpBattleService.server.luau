@@ -5,7 +5,9 @@ local DataStoreService = game:GetService("DataStoreService")
 local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
 local PvpProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("PvpProtocol"))
 local BattleBalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BattleBalanceConfig"))
-local CardAbilityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardAbilityConfig"))
+local CombatFormulas = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatFormulas"))
+local DamagePipeline = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("DamagePipeline"))
+local CombatAutoAbilities = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatAutoAbilities"))
 
 local MAX_DECK_SIZE = 5
 local DEFAULT_ATTACK_INTERVAL_SECONDS = 5
@@ -16,6 +18,17 @@ local MIN_ABILITY_COOLDOWN_SECONDS = math.max(1, tonumber(BattleBalanceConfig.De
 local INVITE_TIMEOUT_SECONDS = 20
 local CHALLENGE_THROTTLE_SECONDS = 0.75
 local pvpWinsStore = DataStoreService:GetDataStore("PvpWinsV1")
+
+local function shallowCopyStatBlock(t)
+	if type(t) ~= "table" then
+		return {}
+	end
+	local out = {}
+	for k, v in pairs(t) do
+		out[k] = v
+	end
+	return out
+end
 
 local inviteById = {}
 local pendingInviteByTargetUserId = {}
@@ -167,34 +180,34 @@ local function clearInvite(invite)
 end
 
 local function buildCardState(slotIndex, cardId)
-	local data = CardDatabase.GetCardData(cardId)
-	local attack = math.max(1, math.floor(tonumber(data and data.Attack) or 1))
-	local maxHealth = math.max(1, math.floor(tonumber(data and data.Health) or 100))
-	local attackIntervalSeconds = math.max(0.5, tonumber(data and data.AttackIntervalSeconds) or DEFAULT_ATTACK_INTERVAL_SECONDS)
-	local abilityId = (type(data and data.AbilityId) == "string") and data.AbilityId or ""
-	local abilityDef = CardAbilityConfig.GetAbility(abilityId)
-	local abilityCooldownSeconds = math.max(
-		MIN_ABILITY_COOLDOWN_SECONDS,
-		tonumber(data and data.AbilityCooldownSeconds) or tonumber(abilityDef and abilityDef.DefaultCooldownSeconds) or 10
-	)
+	local profile = CardDatabase.GetCombatProfile(cardId, nil)
+	if not profile then
+		warn("[PvpBattle] Missing CardDatabase row for cardId=" .. tostring(cardId))
+		return nil
+	end
+	local abilityCooldownSeconds = math.max(MIN_ABILITY_COOLDOWN_SECONDS, profile.abilityCooldownSeconds)
+	local st = shallowCopyStatBlock(profile.statBlock)
 	return {
 		slotIndex = slotIndex,
 		cardId = cardId,
-		cardName = (data and data.Name) or cardId,
-		attack = attack,
-		baseAttack = attack,
-		attackIntervalSeconds = attackIntervalSeconds,
-		baseAttackIntervalSeconds = attackIntervalSeconds,
-		maxHealth = maxHealth,
-		health = maxHealth,
+		cardName = profile.cardName,
+		attack = profile.baseAttack,
+		baseAttack = profile.baseAttack,
+		attackIntervalSeconds = profile.attackIntervalSeconds,
+		baseAttackIntervalSeconds = profile.baseAttackIntervalSeconds,
+		maxHealth = profile.maxHealth,
+		health = profile.maxHealth,
 		nextAttackAt = 0,
 		nextAbilityAt = 0,
-		abilityId = abilityId,
+		abilityId = profile.abilityId,
 		abilityCooldownSeconds = abilityCooldownSeconds,
 		speedBoostMagnitude = 0,
 		speedBoostUntil = 0,
 		damageBoostMagnitude = 0,
 		damageBoostUntil = 0,
+		outgoingAttackDebuffPercent = 0,
+		outgoingAttackDebuffUntil = 0,
+		statBlock = st,
 	}
 end
 
@@ -230,109 +243,27 @@ local function sanitizeDeckSnapshot(rawDeck)
 end
 
 local function aliveCards(cardStates)
-	local out = {}
-	for _, state in ipairs(cardStates or {}) do
-		if state.health > 0 then
-			table.insert(out, state)
-		end
-	end
-	return out
-end
-
-local function getEffectiveAttack(cardState, now)
-	local attack = math.max(1, math.floor(tonumber(cardState and cardState.baseAttack) or 1))
-	if cardState and (tonumber(cardState.damageBoostUntil) or 0) > now then
-		local boost = math.max(0, tonumber(cardState.damageBoostMagnitude) or 0)
-		attack = math.max(1, math.floor(attack * (1 + boost)))
-	end
-	return attack
-end
-
-local function getEffectiveAttackInterval(cardState, now)
-	local interval = math.max(0.5, tonumber(cardState and cardState.baseAttackIntervalSeconds) or DEFAULT_ATTACK_INTERVAL_SECONDS)
-	if cardState and (tonumber(cardState.speedBoostUntil) or 0) > now then
-		local boost = math.max(0, tonumber(cardState.speedBoostMagnitude) or 0)
-		interval = math.max(0.25, interval / (1 + boost))
-	end
-	return interval
-end
-
-local function applyAutoAbilityForTeam(allies, casterState, now, abilityEvents, attackerUserId)
-	if not casterState or casterState.health <= 0 then
-		return false
-	end
-	local abilityDef = CardAbilityConfig.GetAbility(casterState.abilityId)
-	if not abilityDef then
-		return false
-	end
-
-	local aliveAllies = aliveCards(allies)
-	if #aliveAllies == 0 then
-		return false
-	end
-
-	local magnitude = math.max(0, tonumber(abilityDef.Magnitude) or 0)
-	local durationSeconds = math.max(0, tonumber(abilityDef.DurationSeconds) or 0)
-	local targetSlotIndices = {}
-
-	if abilityDef.EffectType == "TeamAttackSpeedBoost" then
-		for _, ally in ipairs(aliveAllies) do
-			ally.speedBoostMagnitude = math.max(tonumber(ally.speedBoostMagnitude) or 0, magnitude)
-			ally.speedBoostUntil = math.max(tonumber(ally.speedBoostUntil) or 0, now + durationSeconds)
-			table.insert(targetSlotIndices, ally.slotIndex)
-		end
-	elseif abilityDef.EffectType == "TeamAttackDamageBoost" then
-		for _, ally in ipairs(aliveAllies) do
-			ally.damageBoostMagnitude = math.max(tonumber(ally.damageBoostMagnitude) or 0, magnitude)
-			ally.damageBoostUntil = math.max(tonumber(ally.damageBoostUntil) or 0, now + durationSeconds)
-			table.insert(targetSlotIndices, ally.slotIndex)
-		end
-	elseif abilityDef.EffectType == "HealLowestAlly" then
-		local lowest = nil
-		local lowestRatio = 2
-		for _, ally in ipairs(aliveAllies) do
-			local ratio = (tonumber(ally.health) or 0) / math.max(1, tonumber(ally.maxHealth) or 1)
-			if ratio < lowestRatio then
-				lowestRatio = ratio
-				lowest = ally
-			end
-		end
-		if lowest then
-			local healAmount = math.max(1, math.floor(math.max(1, lowest.maxHealth) * magnitude))
-			lowest.health = math.min(lowest.maxHealth, lowest.health + healAmount)
-			table.insert(targetSlotIndices, lowest.slotIndex)
-		end
-	else
-		return false
-	end
-
-	table.insert(abilityEvents, {
-		attackerUserId = attackerUserId,
-		casterSlotIndex = casterState.slotIndex,
-		casterCardId = casterState.cardId,
-		abilityId = casterState.abilityId,
-		effectType = abilityDef.EffectType,
-		targetSlotIndices = targetSlotIndices,
-		magnitude = magnitude,
-		durationSeconds = durationSeconds,
-		timestamp = now,
-	})
-
-	return true
+	return CombatFormulas.FilterAlive(cardStates)
 end
 
 local function serializeCardStates(cardStates, now)
 	local out = {}
 	local currentNow = tonumber(now) or os.clock()
 	for _, state in ipairs(cardStates or {}) do
+		local sb = state.statBlock
+		local statBlockOut = nil
+		if type(sb) == "table" then
+			statBlockOut = shallowCopyStatBlock(sb)
+		end
 		table.insert(out, {
 			slotIndex = state.slotIndex,
 			cardId = state.cardId,
 			cardName = state.cardName,
-			attack = getEffectiveAttack(state, currentNow),
+			attack = CombatFormulas.GetEffectiveAttack(state, currentNow),
 			maxHealth = state.maxHealth,
 			health = state.health,
 			isAlive = state.health > 0,
+			statBlock = statBlockOut,
 		})
 	end
 	return out
@@ -392,6 +323,16 @@ end
 
 local function runCombatLoop(session)
 	task.spawn(function()
+		local t0 = os.clock()
+		local entryEvents = {}
+		CombatAutoAbilities.ApplyOnBattleStartPvp(session, t0, entryEvents)
+		if #entryEvents > 0 then
+			emitStateUpdate(session, {
+				reason = "OnEntryAbilities",
+				abilityEvents = entryEvents,
+			})
+		end
+
 		while session.phase == PvpProtocol.SessionPhase.InProgress do
 			local playerAAlive = aliveCards(session.cardStatesByUserId[session.playerAUserId])
 			local playerBAlive = aliveCards(session.cardStatesByUserId[session.playerBUserId])
@@ -415,7 +356,13 @@ local function runCombatLoop(session)
 
 			for _, attacker in ipairs(playerAAlive) do
 				if attacker.abilityId ~= "" and attacker.nextAbilityAt <= now then
-					applyAutoAbilityForTeam(session.cardStatesByUserId[session.playerAUserId], attacker, now, abilityEvents, session.playerAUserId)
+					CombatAutoAbilities.TryApply(
+						session.cardStatesByUserId[session.playerAUserId],
+						attacker,
+						now,
+						abilityEvents,
+						{ attackerUserId = session.playerAUserId }
+					)
 					attacker.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(attacker.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
 				end
 
@@ -423,8 +370,8 @@ local function runCombatLoop(session)
 					local defenders = aliveCards(session.cardStatesByUserId[session.playerBUserId])
 					if #defenders > 0 then
 						local target = defenders[math.random(1, #defenders)]
-						local damage = getEffectiveAttack(attacker, now)
-						target.health = math.max(0, target.health - damage)
+						local damage = CombatFormulas.GetEffectiveAttack(attacker, now)
+						DamagePipeline.ApplyDamageToUnit(target, damage)
 						table.insert(attacksThisTick, {
 							attackerUserId = session.playerAUserId,
 							attackerSlotIndex = attacker.slotIndex,
@@ -433,13 +380,19 @@ local function runCombatLoop(session)
 							damage = damage,
 						})
 					end
-					attacker.nextAttackAt = now + getEffectiveAttackInterval(attacker, now)
+					attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 				end
 			end
 
 			for _, attacker in ipairs(playerBAlive) do
 				if attacker.abilityId ~= "" and attacker.nextAbilityAt <= now then
-					applyAutoAbilityForTeam(session.cardStatesByUserId[session.playerBUserId], attacker, now, abilityEvents, session.playerBUserId)
+					CombatAutoAbilities.TryApply(
+						session.cardStatesByUserId[session.playerBUserId],
+						attacker,
+						now,
+						abilityEvents,
+						{ attackerUserId = session.playerBUserId }
+					)
 					attacker.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(attacker.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
 				end
 
@@ -447,8 +400,8 @@ local function runCombatLoop(session)
 					local defenders = aliveCards(session.cardStatesByUserId[session.playerAUserId])
 					if #defenders > 0 then
 						local target = defenders[math.random(1, #defenders)]
-						local damage = getEffectiveAttack(attacker, now)
-						target.health = math.max(0, target.health - damage)
+						local damage = CombatFormulas.GetEffectiveAttack(attacker, now)
+						DamagePipeline.ApplyDamageToUnit(target, damage)
 						table.insert(attacksThisTick, {
 							attackerUserId = session.playerBUserId,
 							attackerSlotIndex = attacker.slotIndex,
@@ -457,7 +410,7 @@ local function runCombatLoop(session)
 							damage = damage,
 						})
 					end
-					attacker.nextAttackAt = now + getEffectiveAttackInterval(attacker, now)
+					attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 				end
 			end
 
@@ -721,7 +674,10 @@ actionEvent.OnServerEvent:Connect(function(player, payload)
 	local deck = sanitizeDeckSnapshot(payload.deck)
 	local cardStates = {}
 	for _, entry in ipairs(deck) do
-		table.insert(cardStates, buildCardState(entry.slotIndex, entry.cardId))
+		local st = buildCardState(entry.slotIndex, entry.cardId)
+		if st then
+			table.insert(cardStates, st)
+		end
 	end
 
 	local now = os.clock()

@@ -40,8 +40,7 @@ Secondary integration points (server):
 - `src/server/SmokeChecks.server.luau` — startup config/remotes sanity checks (requires `StatsHandler` for `AllocatePointsRemote` wiring)
 - `src/server/SaveManager.luau`
 - `src/server/PlayerStatsService.luau`
-- `src/server/StatsHandler.server.luau` — get-or-creates `AllocatePointsRemote` (RemoteFunction) and `StatsUpdatedEvent` (RemoteEvent) in `ReplicatedStorage`
-- `src/server/core/state/PlayerStateEvents.luau` — get-or-creates the same `StatsUpdatedEvent` instance (by name) when firing stats sync from the state layer (e.g. level-up); must stay compatible with `StatsHandler`
+- `src/server/StatsHandler.server.luau` — get-or-creates `AllocatePointsRemote` (RemoteFunction) and `StatsUpdatedEvent` (RemoteEvent) in `ReplicatedStorage`. `PlayerStateEvents` (see primary list) uses the same `StatsUpdatedEvent` name when firing from the state layer (e.g. level-up).
 - `src/server/EconomyService.server.luau`
 - `src/server/IdleRollService.server.luau`
 - `src/server/NpcBattleService.server.luau`
@@ -52,7 +51,7 @@ Client state layer (mirrors server schema):
 - `src/client/core/ClientStateManager.luau` — single source of truth for client state
 - `src/client/core/BuffBridge.luau` — centralized buff event/IntValue bridges
 - `src/client/IdleCardGainer.client.luau` — consumes IdleCardEvent, syncs to ClientStateManager
-- `src/client/IdleRollBridge.client.luau` — forwards RewardEvent to IdleCardEvent
+- `src/client/IdleRollBridge.client.luau` — forwards `IdleRollReward` to IdleCardEvent
 - `src/client/InventoryController.client.luau` — canonical SaveDataEvent handler
 
 Client UI layer:

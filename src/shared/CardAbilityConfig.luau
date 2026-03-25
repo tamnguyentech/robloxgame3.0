@@ -1,42 +1,14 @@
+-- CardAbilityConfig.luau
+-- Back-compat facade: ability logic lives in AbilityDatabase.luau. Cards still set AbilityId on the row.
+
+local AbilityDatabase = require(script.Parent:WaitForChild("AbilityDatabase"))
+
 local CardAbilityConfig = {}
 
-CardAbilityConfig.Abilities = {
-        Fireball = {
-            EffectType = "Fireball",
-            Magnitude = 1,
-            DurationSeconds = 0,
-            DefaultCooldownSeconds = 8,
-            Targeting = "SingleEnemy",
-            Description = "Shoots a fireball at the enemy card every 8 seconds.",
-        },
-    AttackSpeedBoost = {
-        EffectType = "TeamAttackSpeedBoost",
-        Magnitude = 0.35,
-        DurationSeconds = 5.0,
-        DefaultCooldownSeconds = 12,
-        Targeting = "AllAllies",
-    },
-    AttackDamageBoost = {
-        EffectType = "TeamAttackDamageBoost",
-        Magnitude = 0.5,
-        DurationSeconds = 5.0,
-        DefaultCooldownSeconds = 15,
-        Targeting = "AllAllies",
-    },
-    HealAlly = {
-        EffectType = "HealLowestAlly",
-        Magnitude = 0.3,
-        DurationSeconds = 0,
-        DefaultCooldownSeconds = 9,
-        Targeting = "LowestHealthAlly",
-    },
-}
+CardAbilityConfig.Abilities = AbilityDatabase.Abilities
 
 function CardAbilityConfig.GetAbility(abilityId)
-    if type(abilityId) ~= "string" or abilityId == "" then
-        return nil
-    end
-    return CardAbilityConfig.Abilities[abilityId]
+	return AbilityDatabase.GetAbility(abilityId)
 end
 
 return CardAbilityConfig

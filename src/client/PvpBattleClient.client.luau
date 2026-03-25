@@ -15,6 +15,7 @@ local HoloFoilController = require(script.Parent.ui.effects:WaitForChild("HoloFo
 local RainbowBorderStroke = require(script.Parent.ui.effects:WaitForChild("RainbowBorderStroke"))
 local ClientStateManager = require(script.Parent.core:WaitForChild("ClientStateManager"))
 local DeviceContext = require(script.Parent.core:WaitForChild("DeviceContext"))
+local DamageNumberView = require(script.Parent.ui:WaitForChild("DamageNumberView"))
 local cardArtFolder      = ReplicatedStorage:WaitForChild("CardArt")
 
 local remotesFolder = ReplicatedStorage:WaitForChild(PvpProtocol.Remotes.FolderName)
@@ -1366,33 +1367,7 @@ local function showDamagePopup(panel, slotIndex, damage)
 	if not (card and card:IsA("Frame")) then
 		return
 	end
-
-	local popup = Instance.new("TextLabel")
-	popup.Name = "DamagePopup"
-	popup.AnchorPoint = Vector2.new(0.5, 0.5)
-	popup.Size = UDim2.fromOffset(86, 24)
-	popup.Position = UDim2.fromScale(0.5, 0.42)
-	popup.BackgroundTransparency = 1
-	popup.Text = "-" .. CardDatabase.FormatAttack(damage)
-	popup.Font = Enum.Font.GothamBlack
-	popup.TextSize = 16
-	popup.TextColor3 = Color3.fromRGB(255, 120, 120)
-	popup.TextStrokeColor3 = Color3.fromRGB(8, 8, 8)
-	popup.TextStrokeTransparency = 0
-	popup.ZIndex = 12
-	popup.Parent = card
-
-	TweenService:Create(
-		popup,
-		TweenInfo.new(0.42, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-		{Position = UDim2.fromScale(0.5, 0.1), TextTransparency = 1, TextStrokeTransparency = 1}
-	):Play()
-
-	task.delay(0.48, function()
-		if popup and popup.Parent then
-			popup:Destroy()
-		end
-	end)
+	DamageNumberView.show(card, damage, "PvpHit")
 end
 
 local function getAbilityEffectStyle(effectType)

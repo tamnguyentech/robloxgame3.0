@@ -6,14 +6,27 @@ local BattleProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForC
 local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
 local ServerStateManager = require(script.Parent.core:WaitForChild("ServerStateManager"))
 local BattleBalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BattleBalanceConfig"))
-local CardAbilityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardAbilityConfig"))
+local CombatFormulas = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatFormulas"))
+local DamagePipeline = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("DamagePipeline"))
+local CombatAutoAbilities = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatAutoAbilities"))
 
 local FIRST_ATTACK_STAGGER_SECONDS = 2
-local BOSS_COUNTER_ATTACK_INTERVAL_SECONDS = 4
+local NPC_COUNTER_ATTACK_INTERVAL_SECONDS = 4
 local DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS = 5
 local PVE_ABILITY_TICK_INTERVAL_SECONDS = math.max(0.02, tonumber(BattleBalanceConfig.Pve.AbilityTickIntervalSeconds) or 0.08)
 local DEFAULT_ABILITY_FIRST_CAST_DELAY_SECONDS = math.max(0, tonumber(BattleBalanceConfig.Pve.AbilityFirstCastDelaySeconds) or 2.0)
 local MIN_ABILITY_COOLDOWN_SECONDS = math.max(1, tonumber(BattleBalanceConfig.Defaults.AbilityMinCooldownSeconds) or 1)
+
+local function shallowCopyStatBlock(t)
+	if type(t) ~= "table" then
+		return {}
+	end
+	local out = {}
+	for k, v in pairs(t) do
+		out[k] = v
+	end
+	return out
+end
 
 local NPC_REGISTRY = {
 	PerfectCell = {
@@ -24,10 +37,10 @@ local NPC_REGISTRY = {
 		PromptText = "Battle",
 		ObjectText = "Perfect Cell",
 		HoldDuration = 0.12,
-		BossCardId = "PerfectCell",
-		BossCardName = "Perfect Cell",
-		BossMaxHealth = 1000000000,
-		BossAttack = 4000000,
+		NpcCardId = "PerfectCell",
+		NpcCardName = "Perfect Cell",
+		NpcMaxHealth = 1000000000,
+		NpcAttack = 4000,
 	},
 	Aokoji = {
 		NpcId = "Aokoji",
@@ -37,10 +50,10 @@ local NPC_REGISTRY = {
 		PromptText = "Battle",
 		ObjectText = "Aokoji",
 		HoldDuration = 0.12,
-		BossCardId = "Aokoji",
-		BossCardName = "Aokoji",
-		BossMaxHealth = 1000000000,
-		BossAttack = 4000000,
+		NpcCardId = "Aokoji",
+		NpcCardName = "Aokoji",
+		NpcMaxHealth = 1000000000,
+		NpcAttack = 4000000,
 	},
 }
 
@@ -303,19 +316,20 @@ local function buildPlayerCardStatePayload(session)
 	local payload = {}
 	local now = os.clock()
 	for _, state in ipairs(session.playerCardStates or {}) do
-		local attack = math.max(1, math.floor(tonumber(state.baseAttack or state.attack) or 1))
-		if (tonumber(state.damageBoostUntil) or 0) > now then
-			local boost = math.max(0, tonumber(state.damageBoostMagnitude) or 0)
-			attack = math.max(1, math.floor(attack * (1 + boost)))
+		local sb = state.statBlock
+		local statBlockOut = nil
+		if type(sb) == "table" then
+			statBlockOut = shallowCopyStatBlock(sb)
 		end
 		table.insert(payload, {
 			slotIndex = state.slotIndex,
 			cardId = state.cardId,
 			cardName = state.cardName,
-			attack = attack,
+			attack = CombatFormulas.GetEffectiveAttack(state, now),
 			maxHealth = state.maxHealth,
 			health = state.health,
 			isAlive = state.health > 0,
+			statBlock = statBlockOut,
 		})
 	end
 	return payload
@@ -338,88 +352,6 @@ local function getCardStateBySlot(session, slotIndex)
 		end
 	end
 	return nil
-end
-
-local function getEffectiveAttack(cardState, now)
-	local attack = math.max(1, math.floor(tonumber(cardState and cardState.baseAttack) or 1))
-	if cardState and (tonumber(cardState.damageBoostUntil) or 0) > now then
-		local boost = math.max(0, tonumber(cardState.damageBoostMagnitude) or 0)
-		attack = math.max(1, math.floor(attack * (1 + boost)))
-	end
-	return attack
-end
-
-local function getEffectiveAttackInterval(cardState, now)
-	local interval = math.max(0.5, tonumber(cardState and cardState.baseAttackIntervalSeconds) or DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS)
-	if cardState and (tonumber(cardState.speedBoostUntil) or 0) > now then
-		local boost = math.max(0, tonumber(cardState.speedBoostMagnitude) or 0)
-		interval = math.max(0.25, interval / (1 + boost))
-	end
-	return interval
-end
-
-local function applyAutoAbility(session, casterState, now, abilityEvents)
-	if not casterState or casterState.health <= 0 then
-		return false
-	end
-	local abilityId = casterState.abilityId
-	local abilityDef = CardAbilityConfig.GetAbility(abilityId)
-	if not abilityDef then
-		return false
-	end
-
-	local aliveAllies = getAliveCardStates(session)
-	if #aliveAllies == 0 then
-		return false
-	end
-
-	local magnitude = math.max(0, tonumber(abilityDef.Magnitude) or 0)
-	local durationSeconds = math.max(0, tonumber(abilityDef.DurationSeconds) or 0)
-	local targetSlotIndices = {}
-
-	if abilityDef.EffectType == "TeamAttackSpeedBoost" then
-		for _, ally in ipairs(aliveAllies) do
-			ally.speedBoostMagnitude = math.max(tonumber(ally.speedBoostMagnitude) or 0, magnitude)
-			ally.speedBoostUntil = math.max(tonumber(ally.speedBoostUntil) or 0, now + durationSeconds)
-			table.insert(targetSlotIndices, ally.slotIndex)
-		end
-	elseif abilityDef.EffectType == "TeamAttackDamageBoost" then
-		for _, ally in ipairs(aliveAllies) do
-			ally.damageBoostMagnitude = math.max(tonumber(ally.damageBoostMagnitude) or 0, magnitude)
-			ally.damageBoostUntil = math.max(tonumber(ally.damageBoostUntil) or 0, now + durationSeconds)
-			table.insert(targetSlotIndices, ally.slotIndex)
-		end
-	elseif abilityDef.EffectType == "HealLowestAlly" then
-		local lowest = nil
-		local lowestRatio = 2
-		for _, ally in ipairs(aliveAllies) do
-			local ratio = (tonumber(ally.health) or 0) / math.max(1, tonumber(ally.maxHealth) or 1)
-			if ratio < lowestRatio then
-				lowestRatio = ratio
-				lowest = ally
-			end
-		end
-		if lowest then
-			local healAmount = math.max(1, math.floor(math.max(1, lowest.maxHealth) * magnitude))
-			lowest.health = math.min(lowest.maxHealth, lowest.health + healAmount)
-			table.insert(targetSlotIndices, lowest.slotIndex)
-		end
-	else
-		return false
-	end
-
-	table.insert(abilityEvents, {
-		casterSlotIndex = casterState.slotIndex,
-		casterCardId = casterState.cardId,
-		abilityId = abilityId,
-		effectType = abilityDef.EffectType,
-		targetSlotIndices = targetSlotIndices,
-		magnitude = magnitude,
-		durationSeconds = durationSeconds,
-		timestamp = now,
-	})
-
-	return true
 end
 
 local function pruneDeadAttackers(session)
@@ -449,23 +381,23 @@ local function shuffleInPlace(list)
 	end
 end
 
-local function sendBossState(player, session, payload)
+local function sendNpcState(player, session, payload)
 	local out = payload or {}
-	out.eventType = BattleProtocol.EventType.BossState
+	out.eventType = BattleProtocol.EventType.NpcState
 	out.sessionId = session.sessionId
 	out.npcId = session.npcId
 	out.phase = session.phase
-	out.bossCardId = session.bossCardId
-	out.bossCardName = session.bossCardName
-	out.bossMaxHealth = session.bossMaxHealth
-	out.bossHealth = session.bossHealth
-	out.bossAttack = session.bossAttack
+	out.npcCardId = session.npcCardId
+	out.npcCardName = session.npcCardName
+	out.npcMaxHealth = session.npcMaxHealth
+	out.npcHealth = session.npcHealth
+	out.npcAttack = session.npcAttack
 	out.nextAttackInSeconds = DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS
 	out.playerCardStates = buildPlayerCardStatePayload(session)
 	sendState(player, out)
 end
 
-local function runBossAttackLoop(player, session)
+local function runNpcAttackLoop(player, session)
 	task.spawn(function()
 		while true do
 			local current = activeSessionByPlayer[player]
@@ -477,8 +409,8 @@ local function runBossAttackLoop(player, session)
 				break
 			end
 
-			if session.bossHealth <= 0 then
-				finishSession(player, "BossDefeated")
+			if session.npcHealth <= 0 then
+				finishSession(player, "NpcDefeated")
 				break
 			end
 
@@ -498,19 +430,19 @@ local function runBossAttackLoop(player, session)
 				end
 
 				if cardState.abilityId ~= "" and attacker.nextAbilityAt and attacker.nextAbilityAt <= now then
-					if applyAutoAbility(session, cardState, now, abilityEvents) then
+					if CombatAutoAbilities.TryApply(session.playerCardStates, cardState, now, abilityEvents, {}) then
 						dealtAny = true
 					end
 					attacker.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(cardState.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
 				end
 
 				if attacker.nextAttackAt <= now then
-					local dealtDamage = getEffectiveAttack(cardState, now)
-					session.bossHealth = math.max(0, session.bossHealth - dealtDamage)
-					attacker.nextAttackAt = now + getEffectiveAttackInterval(cardState, now)
+					local dealtDamage = CombatFormulas.GetEffectiveAttack(cardState, now)
+					DamagePipeline.ApplyDamageToNpc(session, dealtDamage)
+					attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(cardState, now, DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS)
 					dealtAny = true
 
-					sendBossState(player, session, {
+					sendNpcState(player, session, {
 						attackerCardId = attacker.cardId,
 						attackerSlotIndex = attacker.slotIndex,
 						dealtDamage = dealtDamage,
@@ -518,33 +450,28 @@ local function runBossAttackLoop(player, session)
 					})
 					stateSentThisTick = true
 
-					if session.bossHealth <= 0 then
-						finishSession(player, "BossDefeated")
+					if session.npcHealth <= 0 then
+						finishSession(player, "NpcDefeated")
 						break
 					end
 				end
 			end
 
-			if session.nextBossAttackAt <= now then
+			if session.nextNpcAttackAt <= now then
 				local alive = getAliveCardStates(session)
 				if #alive > 0 then
 					local target = alive[math.random(1, #alive)]
-					local dealtDamage = session.bossAttack
-					target.health = math.max(0, target.health - dealtDamage)
+					local dealtDamage = CombatFormulas.GetEffectiveNpcOutgoingDamage(session, session.npcAttack, now)
+					DamagePipeline.ApplyDamageToUnit(target, dealtDamage)
 					pruneDeadAttackers(session)
-					-- Patch: Use AttackIntervalSeconds from CardDatabase for Aokoji
-					local interval = BOSS_COUNTER_ATTACK_INTERVAL_SECONDS
-					if session.bossCardId == "Aokoji" then
-						local cardData = CardDatabase.GetCardData("Aokoji")
-						interval = math.max(0.5, tonumber(cardData and cardData.AttackIntervalSeconds) or BOSS_COUNTER_ATTACK_INTERVAL_SECONDS)
-					end
-					session.nextBossAttackAt = now + interval
+					local interval = CardDatabase.GetNpcCounterAttackIntervalSeconds(session.npcCardId, NPC_COUNTER_ATTACK_INTERVAL_SECONDS)
+					session.nextNpcAttackAt = now + interval
 					dealtAny = true
 
-					sendBossState(player, session, {
-						bossAttackDealtDamage = dealtDamage,
-						bossAttackTargetSlotIndex = target.slotIndex,
-						bossAttackTargetCardId = target.cardId,
+					sendNpcState(player, session, {
+						npcAttackDealtDamage = dealtDamage,
+						npcAttackTargetSlotIndex = target.slotIndex,
+						npcAttackTargetCardId = target.cardId,
 						abilityEvents = abilityEvents,
 					})
 					stateSentThisTick = true
@@ -552,14 +479,14 @@ local function runBossAttackLoop(player, session)
 			end
 
 			if #abilityEvents > 0 and not stateSentThisTick then
-				sendBossState(player, session, {
+				sendNpcState(player, session, {
 					reason = "AbilityTriggered",
 					abilityEvents = abilityEvents,
 					dealtDamage = 0,
 				})
 			end
 
-			if session.bossHealth <= 0 then
+			if session.npcHealth <= 0 then
 				break
 			end
 
@@ -584,14 +511,16 @@ local function startSession(player, record)
 		npcId = record.NpcId,
 		createdAt = os.clock(),
 		phase = BattleProtocol.SessionPhase.Lobby,
-		bossCardId = record.BossCardId,
-		bossCardName = record.BossCardName,
-		bossMaxHealth = math.max(1, math.floor(record.BossMaxHealth or 1000000)),
-		bossHealth = math.max(1, math.floor(record.BossMaxHealth or 1000000)),
-		bossAttack = math.max(1, math.floor(record.BossAttack or 100)),
+		npcCardId = record.NpcCardId,
+		npcCardName = record.NpcCardName,
+		npcMaxHealth = math.max(1, math.floor(record.NpcMaxHealth or 1000000)),
+		npcHealth = math.max(1, math.floor(record.NpcMaxHealth or 1000000)),
+		npcAttack = math.max(1, math.floor(record.NpcAttack or 100)),
+		npcOutgoingAttackDebuffPercent = 0,
+		npcOutgoingAttackDebuffUntil = 0,
 		playerDeck = {},
 		playerCardStates = {},
-		nextBossAttackAt = os.clock() + 1.5,
+		nextNpcAttackAt = os.clock() + 1.5,
 		isClosed = false,
 	}
 	activeSessionByPlayer[player] = session
@@ -601,16 +530,16 @@ local function startSession(player, record)
 		sessionId = sessionId,
 		npcId = record.NpcId,
 		npcName = record.DisplayName,
-		bossCardId = session.bossCardId,
-		bossCardName = session.bossCardName,
-		bossMaxHealth = session.bossMaxHealth,
-		bossHealth = session.bossHealth,
-		bossAttack = session.bossAttack,
+		npcCardId = session.npcCardId,
+		npcCardName = session.npcCardName,
+		npcMaxHealth = session.npcMaxHealth,
+		npcHealth = session.npcHealth,
+		npcAttack = session.npcAttack,
 		phase = session.phase,
 		rules = {
 			maxDeckSize = 5,
 			attackIntervalSeconds = DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS,
-			bossAttackIntervalSeconds = BOSS_COUNTER_ATTACK_INTERVAL_SECONDS,
+			npcAttackIntervalSeconds = NPC_COUNTER_ATTACK_INTERVAL_SECONDS,
 			firstAttackStaggerSeconds = FIRST_ATTACK_STAGGER_SECONDS,
 			requiresDeckSnapshot = true,
 		},
@@ -789,60 +718,68 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 		session.playerCardStates = {}
 		local foilChancePoints = ServerStateManager.getFoilChance(player.UserId)
 		for _, entry in ipairs(deck) do
-			local cardData = CardDatabase.GetCardData(entry.cardId)
-			local foilMultipliers = CardDatabase.GetFoilStatMultipliers(entry.cardId, foilChancePoints)
-			local maxHealth = math.max(1, math.floor((tonumber(cardData and cardData.Health) or 100) * (tonumber(foilMultipliers.HpMultiplier) or 1)))
-			table.insert(session.playerCardStates, {
-				slotIndex = entry.slotIndex,
-				cardId = entry.cardId,
-				cardName = (cardData and cardData.Name) or entry.cardId,
-				maxHealth = maxHealth,
-				health = maxHealth,
-			})
+			local profile = CardDatabase.GetCombatProfile(entry.cardId, { foilChancePoints = foilChancePoints })
+			if not profile then
+				warn("[NpcBattle] Missing CardDatabase row for cardId=" .. tostring(entry.cardId))
+			else
+				local ps = profile["statBlock"]
+				local statBlockCopy = {}
+				if type(ps) == "table" then
+					for k, v in pairs(ps) do
+						statBlockCopy[k] = v
+					end
+				end
+				table.insert(session.playerCardStates, {
+					slotIndex = entry.slotIndex,
+					cardId = entry.cardId,
+					cardName = profile.cardName,
+					maxHealth = profile.maxHealth,
+					health = profile.maxHealth,
+					baseAttack = profile.baseAttack,
+					baseAttackIntervalSeconds = profile.baseAttackIntervalSeconds,
+					abilityId = profile.abilityId,
+					abilityCooldownSeconds = math.max(MIN_ABILITY_COOLDOWN_SECONDS, profile.abilityCooldownSeconds),
+					speedBoostMagnitude = 0,
+					speedBoostUntil = 0,
+					damageBoostMagnitude = 0,
+					damageBoostUntil = 0,
+				})
+				local n = #session.playerCardStates
+				session.playerCardStates[n]["statBlock"] = statBlockCopy
+				session.playerCardStates[n].outgoingAttackDebuffPercent = 0
+				session.playerCardStates[n].outgoingAttackDebuffUntil = 0
+			end
 		end
+
+		local entryNow = os.clock()
+		local entryEvents = {}
+		CombatAutoAbilities.ApplyOnBattleStartNpc(session, entryNow, entryEvents)
 
 		session.attackState = {}
 		if #deck > 0 then
-			local firstWave = table.clone(deck)
+			local firstWave = {}
+			for _, d in ipairs(deck) do
+				table.insert(firstWave, d)
+			end
 			shuffleInPlace(firstWave)
 			local now = os.clock()
 			for i, entry in ipairs(firstWave) do
-				local waveCardData = CardDatabase.GetCardData(entry.cardId)
-				local foilMultipliers = CardDatabase.GetFoilStatMultipliers(entry.cardId, foilChancePoints)
-				local attackIntervalSeconds = math.max(0.5, tonumber(waveCardData and waveCardData.AttackIntervalSeconds) or DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS)
-				local abilityId = (type(waveCardData and waveCardData.AbilityId) == "string") and waveCardData.AbilityId or ""
-				local abilityDef = CardAbilityConfig.GetAbility(abilityId)
-				local abilityCooldownSeconds = math.max(
-					MIN_ABILITY_COOLDOWN_SECONDS,
-					tonumber(waveCardData and waveCardData.AbilityCooldownSeconds) or tonumber(abilityDef and abilityDef.DefaultCooldownSeconds) or 10
-				)
-				table.insert(session.attackState, {
-					cardId = entry.cardId,
-					slotIndex = entry.slotIndex,
-					attackIntervalSeconds = attackIntervalSeconds,
-					nextAttackAt = now + ((i - 1) * FIRST_ATTACK_STAGGER_SECONDS),
-					nextAbilityAt = now + DEFAULT_ABILITY_FIRST_CAST_DELAY_SECONDS,
-				})
-
-				for _, state in ipairs(session.playerCardStates) do
-					if state.slotIndex == entry.slotIndex then
-						state.baseAttack = math.max(1, math.floor((tonumber(waveCardData and waveCardData.Attack) or 1) * (tonumber(foilMultipliers.AtkMultiplier) or 1)))
-						state.baseAttackIntervalSeconds = attackIntervalSeconds
-						state.abilityId = abilityId
-						state.abilityCooldownSeconds = abilityCooldownSeconds
-						state.speedBoostMagnitude = 0
-						state.speedBoostUntil = 0
-						state.damageBoostMagnitude = 0
-						state.damageBoostUntil = 0
-						break
-					end
+				local state = getCardStateBySlot(session, entry.slotIndex)
+				if state then
+					table.insert(session.attackState, {
+						cardId = entry.cardId,
+						slotIndex = entry.slotIndex,
+						attackIntervalSeconds = state.baseAttackIntervalSeconds,
+						nextAttackAt = now + ((i - 1) * FIRST_ATTACK_STAGGER_SECONDS),
+						nextAbilityAt = now + DEFAULT_ABILITY_FIRST_CAST_DELAY_SECONDS,
+					})
 				end
 			end
 		end
 
 		if session.phase == BattleProtocol.SessionPhase.Lobby then
 			session.phase = BattleProtocol.SessionPhase.InProgress
-			session.nextBossAttackAt = os.clock() + 1.5
+			session.nextNpcAttackAt = os.clock() + 1.5
 		end
 
 		sendState(player, {
@@ -854,14 +791,19 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 			deckSize = #deck,
 		})
 
-		sendBossState(player, session, {
-			reason = (#deck > 0) and "BattleStarted" or "AwaitingCombatDeck",
+		local npcStatePayload = {
 			dealtDamage = 0,
-		})
+			reason = (#deck > 0) and "BattleStarted" or "AwaitingCombatDeck",
+		}
+		if #entryEvents > 0 then
+			npcStatePayload.abilityEvents = entryEvents
+			npcStatePayload.reason = "BattleStarted"
+		end
+		sendNpcState(player, session, npcStatePayload)
 
 		if #deck > 0 and not session.loopStarted then
 			session.loopStarted = true
-			runBossAttackLoop(player, session)
+			runNpcAttackLoop(player, session)
 		end
 		return
 	end
