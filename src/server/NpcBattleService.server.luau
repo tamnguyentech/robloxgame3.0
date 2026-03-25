@@ -9,6 +9,7 @@ local BattleBalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):Wai
 local CombatFormulas = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatFormulas"))
 local DamagePipeline = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("DamagePipeline"))
 local CombatAutoAbilities = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatAutoAbilities"))
+local CombatEventBus = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatEventBus"))
 
 local FIRST_ATTACK_STAGGER_SECONDS = 2
 local NPC_COUNTER_ATTACK_INTERVAL_SECONDS = 4
@@ -423,34 +424,65 @@ local function runNpcAttackLoop(player, session)
 			local dealtAny = false
 			local stateSentThisTick = false
 			local abilityEvents = {}
+			local lastHitBySlot = {}
 			for _, attacker in ipairs(session.attackState or {}) do
 				local cardState = getCardStateBySlot(session, attacker.slotIndex)
 				if not cardState or cardState.health <= 0 then
 					continue
 				end
+				cardState.nextAttackAt = tonumber(attacker.nextAttackAt) or tonumber(cardState.nextAttackAt) or 0
+				cardState.nextAbilityAt = tonumber(attacker.nextAbilityAt) or tonumber(cardState.nextAbilityAt) or 0
 
-				if cardState.abilityId ~= "" and attacker.nextAbilityAt and attacker.nextAbilityAt <= now then
+				if cardState.abilityId ~= "" and cardState.nextAbilityAt and cardState.nextAbilityAt <= now then
 					if CombatAutoAbilities.TryApply(session.playerCardStates, cardState, now, abilityEvents, {}) then
 						dealtAny = true
 					end
-					attacker.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(cardState.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
+					cardState.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(cardState.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
+					attacker.nextAbilityAt = cardState.nextAbilityAt
 				end
 
-				if attacker.nextAttackAt <= now then
-					local dealtDamage = CombatFormulas.GetEffectiveAttack(cardState, now)
-					DamagePipeline.ApplyDamageToNpc(session, dealtDamage)
-					attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(cardState, now, DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS)
+				if cardState.nextAttackAt <= now then
+					local rawDamage = CombatFormulas.GetEffectiveAttack(cardState, now)
+					local hitResult = DamagePipeline.ResolveHit(cardState, nil, rawDamage, now)
+					DamagePipeline.ApplyDamageToNpc(session, hitResult.finalDamage)
+					cardState.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(cardState, now, DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS)
+					attacker.nextAttackAt = cardState.nextAttackAt
 					dealtAny = true
 
 					sendNpcState(player, session, {
 						attackerCardId = attacker.cardId,
 						attackerSlotIndex = attacker.slotIndex,
-						dealtDamage = dealtDamage,
+						dealtDamage = hitResult.finalDamage,
+						rawDamage = hitResult.rawDamage,
+						isCrit = hitResult.isCrit,
+						isDodged = hitResult.isDodged,
+						absorbed = hitResult.absorbed,
 						abilityEvents = abilityEvents,
 					})
 					stateSentThisTick = true
 
 					if session.npcHealth <= 0 then
+						if not session.npcDeathNotified then
+							session.npcDeathNotified = true
+							CombatEventBus.Fire("OnDeath", {
+								session = session,
+								unit = {
+									cardId = session.npcCardId,
+									cardName = session.npcCardName,
+									health = session.npcHealth,
+								},
+								killer = cardState,
+							})
+							CombatEventBus.Fire("OnKill", {
+								session = session,
+								attacker = cardState,
+								victim = {
+									cardId = session.npcCardId,
+									cardName = session.npcCardName,
+									health = session.npcHealth,
+								},
+							})
+						end
 						finishSession(player, "NpcDefeated")
 						break
 					end
@@ -461,19 +493,40 @@ local function runNpcAttackLoop(player, session)
 				local alive = getAliveCardStates(session)
 				if #alive > 0 then
 					local target = alive[math.random(1, #alive)]
-					local dealtDamage = CombatFormulas.GetEffectiveNpcOutgoingDamage(session, session.npcAttack, now)
-					DamagePipeline.ApplyDamageToUnit(target, dealtDamage)
+					local rawDamage = CombatFormulas.GetEffectiveNpcOutgoingDamage(session, session.npcAttack, now)
+					local hitResult = DamagePipeline.ResolveHit({
+						cardId = session.npcCardId,
+						cardName = session.npcCardName,
+						baseAttack = session.npcAttack,
+						statBlock = {},
+					}, target, rawDamage, now)
 					pruneDeadAttackers(session)
 					local interval = CardDatabase.GetNpcCounterAttackIntervalSeconds(session.npcCardId, NPC_COUNTER_ATTACK_INTERVAL_SECONDS)
 					session.nextNpcAttackAt = now + interval
 					dealtAny = true
 
 					sendNpcState(player, session, {
-						npcAttackDealtDamage = dealtDamage,
+						npcAttackDealtDamage = hitResult.finalDamage,
+						npcAttackRawDamage = hitResult.rawDamage,
+						npcAttackIsCrit = hitResult.isCrit,
+						npcAttackIsDodged = hitResult.isDodged,
+						npcAttackAbsorbed = hitResult.absorbed,
 						npcAttackTargetSlotIndex = target.slotIndex,
 						npcAttackTargetCardId = target.cardId,
 						abilityEvents = abilityEvents,
 					})
+					lastHitBySlot[target.slotIndex] = {
+						cardId = session.npcCardId,
+						cardName = session.npcCardName,
+					}
+					if target.health <= 0 and not target.deathNotified then
+						target.deathNotified = true
+						CombatEventBus.Fire("OnDeath", {
+							session = session,
+							unit = target,
+							killer = lastHitBySlot[target.slotIndex],
+						})
+					end
 					stateSentThisTick = true
 				end
 			end
@@ -491,6 +544,17 @@ local function runNpcAttackLoop(player, session)
 			end
 
 			if #getAliveCardStates(session) == 0 then
+				for _, state in ipairs(session.playerCardStates or {}) do
+					if state.health <= 0 and not state.deathNotified then
+						state.deathNotified = true
+						local killer = lastHitBySlot[state.slotIndex]
+						CombatEventBus.Fire("OnDeath", {
+							session = session,
+							unit = state,
+							killer = killer,
+						})
+					end
+				end
 				finishSession(player, "PlayerDefeated")
 				break
 			end
@@ -518,6 +582,7 @@ local function startSession(player, record)
 		npcAttack = math.max(1, math.floor(record.NpcAttack or 100)),
 		npcOutgoingAttackDebuffPercent = 0,
 		npcOutgoingAttackDebuffUntil = 0,
+		npcDeathNotified = false,
 		playerDeck = {},
 		playerCardStates = {},
 		nextNpcAttackAt = os.clock() + 1.5,
@@ -743,6 +808,9 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 					speedBoostUntil = 0,
 					damageBoostMagnitude = 0,
 					damageBoostUntil = 0,
+					nextAttackAt = 0,
+					nextAbilityAt = 0,
+					deathNotified = false,
 				})
 				local n = #session.playerCardStates
 				session.playerCardStates[n]["statBlock"] = statBlockCopy
@@ -773,6 +841,8 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 						nextAttackAt = now + ((i - 1) * FIRST_ATTACK_STAGGER_SECONDS),
 						nextAbilityAt = now + DEFAULT_ABILITY_FIRST_CAST_DELAY_SECONDS,
 					})
+					state.nextAttackAt = now + ((i - 1) * FIRST_ATTACK_STAGGER_SECONDS)
+					state.nextAbilityAt = now + DEFAULT_ABILITY_FIRST_CAST_DELAY_SECONDS
 				end
 			end
 		end

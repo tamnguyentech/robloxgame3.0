@@ -105,8 +105,10 @@ Source of truth: [default.project.json](../default.project.json).
 | `BalanceConfig` | ROLLS_PER_LEVEL, luck formulas, auto-roll interval |
 | `combat/CombatStatDefaults` | Default secondary combat stats + `MergeStatBlock` |
 | `combat/CombatFormulas` | Effective attack/interval, `FilterAlive` |
-| `combat/DamagePipeline` | Centralized damage/heal/PvE NPC HP application (`ApplyDamageToNpc`) |
-| `combat/CombatAutoAbilities` | Data-driven auto abilities (shared by PvP + NPC) |
+| `combat/DamagePipeline` | Centralized damage/heal/PvE NPC HP application (`ApplyDamageToNpc`) + `ResolveHit` (dodge/crit/DR/shield) |
+| `combat/CombatAutoAbilities` | Data-driven auto abilities (shared by PvP + NPC), internally delegated to `EffectResolver` |
+| `combat/EffectResolver` | EffectType registry/dispatcher for ability effect execution |
+| `combat/CombatEventBus` | Combat hook pub-sub (`OnHit`, `OnDeath`, `OnKill`) |
 | `CardDatabase` | Card data, rarity, combat power; `GetCombatProfile`, `GetNpcCounterAttackIntervalSeconds`, `ResolveCardIdStrict` |
 | `CardVisualResolver` | Card visuals from refs |
 | `AbilityDatabase` | Canonical ability defs by Id (`Abilities`, `GetAbility`); cards set `AbilityId` on the row |

@@ -1415,7 +1415,15 @@ local function autoRegisterCardArtCards()
                     HoverVideoAssetId = sanitizeVideoAssetId(existing.HoverVideoAssetId),
                     AbilityId = sanitizeAbilityId(existing.AbilityId),
                     AbilityCooldownSeconds = sanitizeAbilityCooldownSeconds(existing.AbilityCooldownSeconds),
-                    IsSpecialVideoCard = existing.IsSpecialVideoCard == true
+                    IsSpecialVideoCard = existing.IsSpecialVideoCard == true,
+                    CritChance = type(existing.CritChance) == "number" and existing.CritChance or DEFAULT_CARD_TEMPLATE.CritChance,
+                    CritDamage = type(existing.CritDamage) == "number" and existing.CritDamage or DEFAULT_CARD_TEMPLATE.CritDamage,
+                    Accuracy = type(existing.Accuracy) == "number" and existing.Accuracy or DEFAULT_CARD_TEMPLATE.Accuracy,
+                    Dodge = type(existing.Dodge) == "number" and existing.Dodge or DEFAULT_CARD_TEMPLATE.Dodge,
+                    DamageReduction = type(existing.DamageReduction) == "number" and existing.DamageReduction or DEFAULT_CARD_TEMPLATE.DamageReduction,
+                    HealPower = type(existing.HealPower) == "number" and existing.HealPower or DEFAULT_CARD_TEMPLATE.HealPower,
+                    CooldownReduction = type(existing.CooldownReduction) == "number" and existing.CooldownReduction or DEFAULT_CARD_TEMPLATE.CooldownReduction,
+                    Tenacity = type(existing.Tenacity) == "number" and existing.Tenacity or DEFAULT_CARD_TEMPLATE.Tenacity,
                 }
             else
                 -- New cards discovered from CardArt may use decal attributes as metadata.
@@ -1433,6 +1441,14 @@ local function autoRegisterCardArtCards()
                     AbilityId = DEFAULT_CARD_TEMPLATE.AbilityId,
                     AbilityCooldownSeconds = DEFAULT_CARD_TEMPLATE.AbilityCooldownSeconds,
                     IsSpecialVideoCard = false,
+                    CritChance = DEFAULT_CARD_TEMPLATE.CritChance,
+                    CritDamage = DEFAULT_CARD_TEMPLATE.CritDamage,
+                    Accuracy = DEFAULT_CARD_TEMPLATE.Accuracy,
+                    Dodge = DEFAULT_CARD_TEMPLATE.Dodge,
+                    DamageReduction = DEFAULT_CARD_TEMPLATE.DamageReduction,
+                    HealPower = DEFAULT_CARD_TEMPLATE.HealPower,
+                    CooldownReduction = DEFAULT_CARD_TEMPLATE.CooldownReduction,
+                    Tenacity = DEFAULT_CARD_TEMPLATE.Tenacity,
                 }
             end
         end
@@ -1455,6 +1471,14 @@ local function normalizeAllCardDataEntries()
             AbilityId = sanitizeAbilityId(data.AbilityId),
             AbilityCooldownSeconds = sanitizeAbilityCooldownSeconds(data.AbilityCooldownSeconds),
             IsSpecialVideoCard = data.IsSpecialVideoCard == true,
+            CritChance = type(data.CritChance) == "number" and data.CritChance or DEFAULT_CARD_TEMPLATE.CritChance,
+            CritDamage = type(data.CritDamage) == "number" and data.CritDamage or DEFAULT_CARD_TEMPLATE.CritDamage,
+            Accuracy = type(data.Accuracy) == "number" and data.Accuracy or DEFAULT_CARD_TEMPLATE.Accuracy,
+            Dodge = type(data.Dodge) == "number" and data.Dodge or DEFAULT_CARD_TEMPLATE.Dodge,
+            DamageReduction = type(data.DamageReduction) == "number" and data.DamageReduction or DEFAULT_CARD_TEMPLATE.DamageReduction,
+            HealPower = type(data.HealPower) == "number" and data.HealPower or DEFAULT_CARD_TEMPLATE.HealPower,
+            CooldownReduction = type(data.CooldownReduction) == "number" and data.CooldownReduction or DEFAULT_CARD_TEMPLATE.CooldownReduction,
+            Tenacity = type(data.Tenacity) == "number" and data.Tenacity or DEFAULT_CARD_TEMPLATE.Tenacity,
         }
     end
 end
@@ -1474,7 +1498,15 @@ local function registerSpecialVideoCards()
             HoverVideoAssetId = sanitizeVideoAssetId(data.HoverVideoAssetId),
             AbilityId = sanitizeAbilityId(data.AbilityId),
             AbilityCooldownSeconds = sanitizeAbilityCooldownSeconds(data.AbilityCooldownSeconds),
-            IsSpecialVideoCard = true
+            IsSpecialVideoCard = true,
+            CritChance = type(data.CritChance) == "number" and data.CritChance or DEFAULT_CARD_TEMPLATE.CritChance,
+            CritDamage = type(data.CritDamage) == "number" and data.CritDamage or DEFAULT_CARD_TEMPLATE.CritDamage,
+            Accuracy = type(data.Accuracy) == "number" and data.Accuracy or DEFAULT_CARD_TEMPLATE.Accuracy,
+            Dodge = type(data.Dodge) == "number" and data.Dodge or DEFAULT_CARD_TEMPLATE.Dodge,
+            DamageReduction = type(data.DamageReduction) == "number" and data.DamageReduction or DEFAULT_CARD_TEMPLATE.DamageReduction,
+            HealPower = type(data.HealPower) == "number" and data.HealPower or DEFAULT_CARD_TEMPLATE.HealPower,
+            CooldownReduction = type(data.CooldownReduction) == "number" and data.CooldownReduction or DEFAULT_CARD_TEMPLATE.CooldownReduction,
+            Tenacity = type(data.Tenacity) == "number" and data.Tenacity or DEFAULT_CARD_TEMPLATE.Tenacity,
         }
     end
 end

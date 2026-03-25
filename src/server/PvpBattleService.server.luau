@@ -8,6 +8,7 @@ local BattleBalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):Wai
 local CombatFormulas = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatFormulas"))
 local DamagePipeline = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("DamagePipeline"))
 local CombatAutoAbilities = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatAutoAbilities"))
+local CombatEventBus = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatEventBus"))
 
 local MAX_DECK_SIZE = 5
 local DEFAULT_ATTACK_INTERVAL_SECONDS = 5
@@ -208,6 +209,7 @@ local function buildCardState(slotIndex, cardId)
 		outgoingAttackDebuffPercent = 0,
 		outgoingAttackDebuffUntil = 0,
 		statBlock = st,
+		deathNotified = false,
 	}
 end
 
@@ -353,6 +355,7 @@ local function runCombatLoop(session)
 			local now = os.clock()
 			local attacksThisTick = {}
 			local abilityEvents = {}
+			local lastHitByTargetKey = {}
 
 			for _, attacker in ipairs(playerAAlive) do
 				if attacker.abilityId ~= "" and attacker.nextAbilityAt <= now then
@@ -370,15 +373,20 @@ local function runCombatLoop(session)
 					local defenders = aliveCards(session.cardStatesByUserId[session.playerBUserId])
 					if #defenders > 0 then
 						local target = defenders[math.random(1, #defenders)]
-						local damage = CombatFormulas.GetEffectiveAttack(attacker, now)
-						DamagePipeline.ApplyDamageToUnit(target, damage)
+						local rawDamage = CombatFormulas.GetEffectiveAttack(attacker, now)
+						local hitResult = DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
 						table.insert(attacksThisTick, {
 							attackerUserId = session.playerAUserId,
 							attackerSlotIndex = attacker.slotIndex,
 							targetUserId = session.playerBUserId,
 							targetSlotIndex = target.slotIndex,
-							damage = damage,
+							damage = hitResult.finalDamage,
+							rawDamage = hitResult.rawDamage,
+							isCrit = hitResult.isCrit,
+							isDodged = hitResult.isDodged,
+							absorbed = hitResult.absorbed,
 						})
+						lastHitByTargetKey[tostring(session.playerBUserId) .. ":" .. tostring(target.slotIndex)] = attacker
 					end
 					attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 				end
@@ -400,21 +408,63 @@ local function runCombatLoop(session)
 					local defenders = aliveCards(session.cardStatesByUserId[session.playerAUserId])
 					if #defenders > 0 then
 						local target = defenders[math.random(1, #defenders)]
-						local damage = CombatFormulas.GetEffectiveAttack(attacker, now)
-						DamagePipeline.ApplyDamageToUnit(target, damage)
+						local rawDamage = CombatFormulas.GetEffectiveAttack(attacker, now)
+						local hitResult = DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
 						table.insert(attacksThisTick, {
 							attackerUserId = session.playerBUserId,
 							attackerSlotIndex = attacker.slotIndex,
 							targetUserId = session.playerAUserId,
 							targetSlotIndex = target.slotIndex,
-							damage = damage,
+							damage = hitResult.finalDamage,
+							rawDamage = hitResult.rawDamage,
+							isCrit = hitResult.isCrit,
+							isDodged = hitResult.isDodged,
+							absorbed = hitResult.absorbed,
 						})
+						lastHitByTargetKey[tostring(session.playerAUserId) .. ":" .. tostring(target.slotIndex)] = attacker
 					end
 					attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 				end
 			end
 
 			if #attacksThisTick > 0 then
+				for _, targetState in ipairs(session.cardStatesByUserId[session.playerAUserId]) do
+					if targetState.health <= 0 and not targetState.deathNotified then
+						targetState.deathNotified = true
+						local killer = lastHitByTargetKey[tostring(session.playerAUserId) .. ":" .. tostring(targetState.slotIndex)]
+						CombatEventBus.Fire("OnDeath", {
+							session = session,
+							unit = targetState,
+							killer = killer,
+						})
+						if killer then
+							CombatEventBus.Fire("OnKill", {
+								session = session,
+								attacker = killer,
+								victim = targetState,
+							})
+						end
+					end
+				end
+				for _, targetState in ipairs(session.cardStatesByUserId[session.playerBUserId]) do
+					if targetState.health <= 0 and not targetState.deathNotified then
+						targetState.deathNotified = true
+						local killer = lastHitByTargetKey[tostring(session.playerBUserId) .. ":" .. tostring(targetState.slotIndex)]
+						CombatEventBus.Fire("OnDeath", {
+							session = session,
+							unit = targetState,
+							killer = killer,
+						})
+						if killer then
+							CombatEventBus.Fire("OnKill", {
+								session = session,
+								attacker = killer,
+								victim = targetState,
+							})
+						end
+					end
+				end
+
 				emitStateUpdate(session, {
 					attacks = attacksThisTick,
 					abilityEvents = abilityEvents,

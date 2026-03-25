@@ -11,4 +11,8 @@ function CardAbilityConfig.GetAbility(abilityId)
 	return AbilityDatabase.GetAbility(abilityId)
 end
 
+function CardAbilityConfig.RegisterAbility(abilityId, def)
+	return AbilityDatabase.RegisterAbility(abilityId, def)
+end
+
 return CardAbilityConfig
