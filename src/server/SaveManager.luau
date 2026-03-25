@@ -7,8 +7,12 @@ local saveEvent = ReplicatedStorage:WaitForChild("SaveDataEvent")
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local BalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BalanceConfig"))
+local ServerStateManager = require(script.Parent.core:WaitForChild("ServerStateManager"))
+local PlayerStateConstants = require(script.Parent.core:WaitForChild("state"):WaitForChild("PlayerStateConstants"))
+local AutoRollRuntime = require(script.Parent:WaitForChild("AutoRollRuntime"))
 
-local SAVE_THROTTLE_SECONDS = 1
+local SAVE_THROTTLE_SECONDS = 6
 local SAVE_FLUSH_INTERVAL_SECONDS = 8
 local MAX_COMBAT_SLOTS = 5
 local DATASTORE_MAX_BYTES = 4000000
@@ -59,7 +63,7 @@ local function loadPlayerDataFromStore(userId, playerName)
 	local lastErr = nil
 
 	while attempts < DATASTORE_RETRY_COUNT do
-		attempts += 1
+		attempts = attempts + 1
 		local ok, result = pcall(function()
 			return inventoryStore:GetAsync(userId)
 		end)
@@ -82,7 +86,7 @@ local function savePlayerDataToStore(userId, data, playerName)
 	local lastErr = nil
 
 	while attempts < DATASTORE_RETRY_COUNT do
-		attempts += 1
+		attempts = attempts + 1
 		local ok, err = pcall(function()
 			inventoryStore:UpdateAsync(userId, function(_old)
 				return data
@@ -107,6 +111,17 @@ local function persistPlayerData(userId, playerName)
 	if not data then
 		return
 	end
+	-- Why: Stats may have been mutated inside server-core (e.g., level-up points granted via
+	-- PlayerStatsState) without being written back to playerData. Always snapshot from the
+	-- authoritative ServerStateManager cache before every DataStore write so the two stores
+	-- never diverge.
+	local coreStats = ServerStateManager.getStats(userId)
+	if coreStats then
+		data.stats = coreStats
+	end
+	-- Snapshot potion/roll buff state from AutoRollRuntime so it persists across sessions.
+	local buffState = AutoRollRuntime.GetBuffStateForPersistence(userId)
+	data.buffs = buffState or nil
 	local success = savePlayerDataToStore(userId, data, playerName)
 	if not success then
 		dirtyPlayers[userId] = true
@@ -121,6 +136,7 @@ tryPersistPlayerData = function(userId, playerName)
 		pendingSave[userId] = nil
 		return
 	end
+	dirtyPlayers[userId] = true -- Ensure retry runs if throttled (e.g. StatsHandler, merge)
 
 	local now = tick()
 	local last = lastSave[userId]
@@ -144,14 +160,21 @@ end
 
 local function buildDefaultData()
 	return {
-		inventory = CardDatabase.GetDefaultInventory(),
 		combat = {},
 		rollCount = 0,
 		level = 1,
 		coins = 0,
 		boosterPacks = {},
-		items = {
-			AutoRoll2x20s = 0,
+		items = PlayerStateConstants.GetDefaultItems(),
+		stats = {
+			Luck = 0,
+			RollSpeed = 1,
+			PotionDuration = 0,
+			FoilChance = 0,
+			Points = 1,
+		},
+		clientSettings = {
+			ShowIdleRollCardNotifications = true,
 		},
 	}
 end
@@ -169,6 +192,25 @@ local function sanitizeNumberMap(valueTable)
 	return out
 end
 
+local function normalizeCardReference(cardRef)
+	if type(cardRef) ~= "string" or cardRef == "" then
+		return nil
+	end
+	return CardDatabase.NormalizeCardReference(cardRef)
+end
+
+local function getUniqueOwnershipKey(cardRef)
+	local parsed = CardDatabase.ParseCardReference(cardRef)
+	if not parsed then
+		return nil
+	end
+	local data = CardDatabase.GetCardData(parsed.BaseCardId)
+	if data and data.Rarity == "Transcendent" then
+		return parsed.BaseCardId
+	end
+	return parsed.CardRef
+end
+
 local function sanitizeInventoryList(cardList)
 	local out = {}
 	if type(cardList) ~= "table" then
@@ -176,9 +218,9 @@ local function sanitizeInventoryList(cardList)
 	end
 	for _, cardRef in ipairs(cardList) do
 		if type(cardRef) == "string" then
-			local resolved = CardDatabase.ResolveCardIdStrict(cardRef)
-			if resolved then
-				table.insert(out, resolved)
+			local normalized = normalizeCardReference(cardRef)
+			if normalized then
+				table.insert(out, normalized)
 			end
 		end
 	end
@@ -198,8 +240,8 @@ local function sanitizeCombatSlots(cardList, maxLen)
 	for i = 1, maxLen do
 		local cardRef = cardList[i]
 		if type(cardRef) == "string" and cardRef ~= "" then
-			local resolved = CardDatabase.ResolveCardIdStrict(cardRef)
-			out[i] = resolved or ""
+			local normalized = normalizeCardReference(cardRef)
+			out[i] = normalized or ""
 		else
 			out[i] = ""
 		end
@@ -212,7 +254,8 @@ local function isTranscendentUniqueCard(cardId)
 	if type(cardId) ~= "string" or cardId == "" then
 		return false
 	end
-	local data = CardDatabase.GetCardData(cardId)
+	local parsed = CardDatabase.ParseCardReference(cardId)
+	local data = parsed and CardDatabase.GetCardData(parsed.BaseCardId) or nil
 	return data ~= nil and data.Rarity == "Transcendent"
 end
 
@@ -221,11 +264,14 @@ local function enforceUniqueTranscendentOwnership(inventoryList, combatList)
 	local normalizedCombat = {}
 
 	for i, cardId in ipairs(combatList or {}) do
+		local uniqueKey = getUniqueOwnershipKey(cardId)
 		if type(cardId) == "string" and cardId ~= "" and isTranscendentUniqueCard(cardId) then
-			if seen[cardId] then
+			if uniqueKey and seen[uniqueKey] then
 				normalizedCombat[i] = ""
 			else
-				seen[cardId] = true
+				if uniqueKey then
+					seen[uniqueKey] = true
+				end
 				normalizedCombat[i] = cardId
 			end
 		else
@@ -235,9 +281,10 @@ local function enforceUniqueTranscendentOwnership(inventoryList, combatList)
 
 	local normalizedInventory = {}
 	for _, cardId in ipairs(inventoryList or {}) do
+		local uniqueKey = getUniqueOwnershipKey(cardId)
 		if type(cardId) == "string" and cardId ~= "" and isTranscendentUniqueCard(cardId) then
-			if not seen[cardId] then
-				seen[cardId] = true
+			if uniqueKey and not seen[uniqueKey] then
+				seen[uniqueKey] = true
 				table.insert(normalizedInventory, cardId)
 			end
 		elseif type(cardId) == "string" and cardId ~= "" then
@@ -274,10 +321,42 @@ local function normalizeLoadedData(savedData)
 	end
 	if type(savedData.items) == "table" then
 		data.items = sanitizeNumberMap(savedData.items)
-		data.items.AutoRoll2x20s = data.items.AutoRoll2x20s or 0
+		-- Migrate legacy BorderChancePotion to FoilChancePotion (backward compat).
+		local borderPotionCount = tonumber(data.items.BorderChancePotion)
+		if borderPotionCount ~= nil then
+			data.items.FoilChancePotion = (tonumber(data.items.FoilChancePotion) or 0) + borderPotionCount
+			data.items.BorderChancePotion = nil
+		end
+		local defaultItems = PlayerStateConstants.GetDefaultItems()
+		for key, defaultVal in pairs(defaultItems) do
+			if data.items[key] == nil then
+				data.items[key] = defaultVal
+			end
+		end
+	end
+	if type(savedData.stats) == "table" then
+		data.stats = {
+			Luck = math.max(0, math.floor(tonumber(savedData.stats.Luck) or 0)),
+			RollSpeed = math.max(1, math.floor(tonumber(savedData.stats.RollSpeed) or 1)),
+			PotionDuration = math.max(0, math.floor(tonumber(savedData.stats.PotionDuration) or 0)),
+			FoilChance = math.max(0, math.floor(tonumber(savedData.stats.FoilChance or savedData.stats.BorderChance) or 0)),
+			Points = math.max(0, math.floor(tonumber(savedData.stats.Points) or data.level or 1)),
+		}
 	end
 
 	data.inventory, data.combat = enforceUniqueTranscendentOwnership(data.inventory, data.combat)
+
+	if type(savedData.buffs) == "table" then
+		data.buffs = savedData.buffs
+	end
+
+	if type(savedData.clientSettings) == "table" then
+		data.clientSettings = {
+			ShowIdleRollCardNotifications = (savedData.clientSettings.ShowIdleRollCardNotifications == true),
+		}
+	else
+		data.clientSettings = { ShowIdleRollCardNotifications = true }
+	end
 
 	return data
 end
@@ -291,6 +370,9 @@ local function cloneSaveState(data)
 		coins = data.coins,
 		boosterPacks = data.boosterPacks,
 		items = data.items,
+		stats = data.stats,
+		buffs = data.buffs,
+		clientSettings = type(data.clientSettings) == "table" and table.clone(data.clientSettings) or { ShowIdleRollCardNotifications = true },
 	}
 end
 
@@ -334,52 +416,70 @@ local function ensurePlayerDataLoaded(userId, playerName)
 
 	playerData[userId] = loadedData
 	loadingPlayers[userId] = nil
-	-- Set points to level after loading
-	local player = Players:GetPlayerByUserId(userId)
-	if player then
-		local PlayerStatsService = nil
-		if script.Parent:FindFirstChild("PlayerStatsService") then
-			PlayerStatsService = require(script.Parent:FindFirstChild("PlayerStatsService"))
-		else
-			PlayerStatsService = require(ReplicatedStorage:WaitForChild("Server"):WaitForChild("PlayerStatsService"))
-		end
-		PlayerStatsService.SetPoints(player, loadedData.level or 1)
-		-- Fire initial save and economy snapshots to client for UI sync
+	-- Restore potion/roll buffs from persisted state so they continue across rejoin.
+	if type(loadedData.buffs) == "table" then
+		AutoRollRuntime.RestoreBuffs(userId, loadedData.buffs)
+	end
+	-- Sync with ServerStateManager -- this reconciles Points to the authoritative level.
+	ServerStateManager.loadPlayerData(userId, loadedData)
+	-- Pull the reconciled stats back so every snapshot sent to the client is authoritative.
+	-- Why: normalizeLoadedData builds stats from the raw DataStore value, which may carry a
+	-- stale Points field. ServerStateManager.loadPlayerData runs ReconcileStatsToLevel and is
+	-- the single source of truth; we overwrite loadedData.stats before any FireClient call.
+	local initialReconciledStats = ServerStateManager.getStats(userId)
+	if initialReconciledStats then
+		loadedData.stats = initialReconciledStats
+	end
+	-- Push reconciled stats through StatsUpdatedEvent so the Profile UI receives them
+	-- immediately on join, independently of whether the client's WaitForChild for
+	-- AllocatePointsRemote resolves before or after this point.
+	pcall(ServerStateManager.syncStatsToPlayer, userId)
+	-- Fire initial save and economy snapshots to client for UI sync
+	local initPlayer = Players:GetPlayerByUserId(userId)
+	if initPlayer then
 		pcall(function()
-			print("[SaveManager] Sending initial save + economy snapshot to", player.Name)
-			saveEvent:FireClient(player, loadedData)
+			-- Include live buff state (from restore) so client shows potion timers
+			local dataToSend = table.clone(loadedData)
+			dataToSend.buffs = AutoRollRuntime.GetBuffStateForPersistence(userId)
+			dataToSend.clientSettings = loadedData.clientSettings or { ShowIdleRollCardNotifications = true }
+			saveEvent:FireClient(initPlayer, dataToSend)
 			local econEvent = ReplicatedStorage:FindFirstChild("EconomySnapshotEvent")
 			if not (econEvent and econEvent:IsA("RemoteEvent")) then
-				-- create a RemoteEvent for explicit economy snapshots (server->client)
 				econEvent = Instance.new("RemoteEvent")
 				econEvent.Name = "EconomySnapshotEvent"
 				econEvent.Parent = ReplicatedStorage
 			end
 			local econSnapshot = {
-				coins = math.max(0, math.floor(tonumber(loadedData.coins) or 0)),
+				coins        = math.max(0, math.floor(tonumber(loadedData.coins) or 0)),
 				boosterPacks = loadedData.boosterPacks or {},
-				items = (loadedData.items) or { AutoRoll2x20s = 0 },
-				rollCount = math.max(0, math.floor(tonumber(loadedData.rollCount) or 0)),
-				level = math.max(1, math.floor(tonumber(loadedData.level) or 1)),
+				items        = loadedData.items or PlayerStateConstants.GetDefaultItems(),
+				rollCount    = math.max(0, math.floor(tonumber(loadedData.rollCount) or 0)),
+				level        = math.max(1, math.floor(tonumber(loadedData.level) or 1)),
+				stats        = loadedData.stats or {
+					Luck = 0, RollSpeed = 1, PotionDuration = 0,
+					FoilChance = 0, Points = loadedData.level or 1,
+				},
 			}
-			econEvent:FireClient(player, econSnapshot)
+			econEvent:FireClient(initPlayer, econSnapshot)
 		end)
 	end
-	 return loadedData
+	return loadedData
 end
 
 local function buildOwnedCardCounts(inventoryList, combatList)
 	local counts = {}
 
-	for _, cardId in ipairs(inventoryList or {}) do
-		if type(cardId) == "string" and cardId ~= "" then
-			counts[cardId] = (counts[cardId] or 0) + 1
+	for _, cardRef in ipairs(inventoryList or {}) do
+		local normalized = normalizeCardReference(cardRef)
+		if normalized then
+			counts[normalized] = (counts[normalized] or 0) + 1
 		end
 	end
 
-	for _, cardId in ipairs(combatList or {}) do
-		if type(cardId) == "string" and cardId ~= "" then
-			counts[cardId] = (counts[cardId] or 0) + 1
+	for _, cardRef in ipairs(combatList or {}) do
+		local normalized = normalizeCardReference(cardRef)
+		if normalized then
+			counts[normalized] = (counts[normalized] or 0) + 1
 		end
 	end
 
@@ -392,21 +492,46 @@ local function getEconomyState(userId)
 		return {
 			coins = 0,
 			boosterPacks = {},
-			items = {
-				AutoRoll2x20s = 0,
+			items = PlayerStateConstants.GetDefaultItems(),
+			rollCount = 0,
+			level = 1,
+			stats = {
+				Luck = 0,
+				RollSpeed = 1,
+				PotionDuration = 0,
+				FoilChance = 0,
+				Points = 1,
 			},
 		}
 	end
 
 	local items = cloneNumberMap(current.items)
 	items.AutoRoll2x20s = items.AutoRoll2x20s or 0
+	items.LuckPotion = items.LuckPotion or 0
+	items.FoilChancePotion = items.FoilChancePotion or 0
+
+	-- Why: Read stats from the server-core cache so level-up points that have been granted
+	-- but not yet flushed to playerData are still reflected in the economy snapshot returned
+	-- to the client.
+	local coreStats = ServerStateManager.getStats(userId)
+	local stats = coreStats or current.stats or {
+		Luck = 0, RollSpeed = 1, PotionDuration = 0,
+		FoilChance = 0, Points = current.level or 1,
+	}
 
 	return {
-		coins = math.max(0, math.floor(tonumber(current.coins) or 0)),
+		coins        = math.max(0, math.floor(tonumber(current.coins) or 0)),
 		boosterPacks = cloneNumberMap(current.boosterPacks),
-		items = items,
-		rollCount = math.max(0, math.floor(tonumber(current.rollCount) or 0)),
-		level = math.max(1, math.floor(tonumber(current.level) or 1)),
+		items        = items,
+		rollCount    = math.max(0, math.floor(tonumber(current.rollCount) or 0)),
+		level        = math.max(1, math.floor(tonumber(current.level) or 1)),
+		stats = {
+			Luck          = math.max(0, math.floor(tonumber(stats.Luck) or 0)),
+			RollSpeed     = math.max(1, math.floor(tonumber(stats.RollSpeed) or 1)),
+			PotionDuration = math.max(0, math.floor(tonumber(stats.PotionDuration) or 0)),
+			FoilChance    = math.max(0, math.floor(tonumber(stats.FoilChance) or 0)),
+			Points        = math.max(0, math.floor(tonumber(stats.Points) or (tonumber(current.level) or 1))),
+		},
 	}
 end
 
@@ -425,6 +550,8 @@ local function executeEconomyDelta(payload)
 	current.boosterPacks = sanitizeNumberMap(current.boosterPacks)
 	current.items = sanitizeNumberMap(current.items)
 	current.items.AutoRoll2x20s = current.items.AutoRoll2x20s or 0
+	current.items.LuckPotion = current.items.LuckPotion or 0
+	current.items.FoilChancePotion = current.items.FoilChancePotion or 0
 
 	local coinsDelta = math.floor(tonumber(payload.coinsDelta) or 0)
 	local nextCoins = math.floor(tonumber(current.coins) or 0) + coinsDelta
@@ -434,8 +561,9 @@ local function executeEconomyDelta(payload)
 
 	local rollCountDelta = math.floor(tonumber(payload.rollCountDelta) or 0)
 	local nextRollCount = math.max(0, math.floor(tonumber(current.rollCount) or 0) + rollCountDelta)
-	local previousLevel = math.max(1, math.floor((tonumber(current.rollCount) or 0) / 100) + 1)
-	local nextLevel = math.max(1, math.floor(nextRollCount / 100) + 1)
+	local rollsPerLevel = BalanceConfig.ROLLS_PER_LEVEL
+	local previousLevel = math.max(1, math.floor((tonumber(current.rollCount) or 0) / rollsPerLevel) + 1)
+	local nextLevel = math.max(1, math.floor(nextRollCount / rollsPerLevel) + 1)
 
 	local rawPackDelta = (type(payload.boosterPacksDelta) == "table") and payload.boosterPacksDelta or {}
 	local packDelta = sanitizeNumberMap(rawPackDelta)
@@ -464,17 +592,34 @@ local function executeEconomyDelta(payload)
 	end
 
 	local ownedCounts = buildOwnedCardCounts(current.inventory, current.combat)
+	local consumedCards = {}
+	local requestedConsumeCards = {}
+	for _, cardRef in ipairs(payload.consumeCards or {}) do
+		if type(cardRef) == "string" and cardRef ~= "" then
+			local normalized = normalizeCardReference(cardRef)
+			if not normalized or (ownedCounts[normalized] or 0) <= 0 then
+				return false, "InsufficientCards"
+			end
+			ownedCounts[normalized] = ownedCounts[normalized] - 1
+			table.insert(requestedConsumeCards, normalized)
+		end
+	end
+
 	local grantedCards = {}
 	local skippedUniqueGrant = false
 	for _, cardRef in ipairs(payload.grantCards or {}) do
 		if type(cardRef) == "string" and cardRef ~= "" then
-			local resolved = CardDatabase.ResolveCardIdStrict(cardRef)
-			if resolved then
-				if isTranscendentUniqueCard(resolved) and (ownedCounts[resolved] or 0) >= 1 then
+			local normalized = normalizeCardReference(cardRef)
+			if normalized then
+				local uniqueKey = getUniqueOwnershipKey(normalized)
+				if isTranscendentUniqueCard(normalized) and uniqueKey and (ownedCounts[uniqueKey] or 0) >= 1 then
 					skippedUniqueGrant = true
 				else
-					ownedCounts[resolved] = (ownedCounts[resolved] or 0) + 1
-					table.insert(grantedCards, resolved)
+					ownedCounts[normalized] = (ownedCounts[normalized] or 0) + 1
+					if uniqueKey and uniqueKey ~= normalized then
+						ownedCounts[uniqueKey] = (ownedCounts[uniqueKey] or 0) + 1
+					end
+					table.insert(grantedCards, normalized)
 				end
 			end
 		end
@@ -488,19 +633,33 @@ local function executeEconomyDelta(payload)
 	current.rollCount = nextRollCount
 	current.level = nextLevel
 
-	-- Grant skill points on level-up
+	-- Keep server-core cache in sync (single source of truth for derived systems like Points).
+	-- SaveManager historically mutated only playerData; we also mirror into ServerStateManager so
+	-- stats/points derived from level remain deterministic even after /resetrolls or economy deltas.
+	ServerStateManager.addCoins(userId, coinsDelta)
+	ServerStateManager.addRollCount(userId, rollCountDelta)
+	ServerStateManager.setLevel(userId, nextLevel)
+
+	-- Why: Require once outside the loop to avoid redundant require() calls on every
+	-- level-up iteration. OnLevelUp mutates server-core state (PlayerStatsState) and
+	-- immediately fires StatsUpdatedEvent so the client reflects the new Points value.
 	if nextLevel > previousLevel then
-		local player = Players:GetPlayerByUserId(userId)
-		if player then
-			for _ = 1, (nextLevel - previousLevel) do
-				local PlayerStatsService = nil
-				if script.Parent:FindFirstChild("PlayerStatsService") then
-					PlayerStatsService = require(script.Parent:FindFirstChild("PlayerStatsService"))
-				else
-					PlayerStatsService = require(ReplicatedStorage:WaitForChild("Server"):WaitForChild("PlayerStatsService"))
-				end
-				PlayerStatsService.OnLevelUp(player)
+		local levelUpPlayer = Players:GetPlayerByUserId(userId)
+		if levelUpPlayer then
+			local statsModule = script.Parent:FindFirstChild("PlayerStatsService")
+			local statsService
+			if statsModule then
+				statsService = require(statsModule)
+			else
+				statsService = require(ReplicatedStorage:WaitForChild("Server"):WaitForChild("PlayerStatsService"))
 			end
+			for _ = 1, (nextLevel - previousLevel) do
+				statsService.OnLevelUp(levelUpPlayer)
+			end
+			-- Why: Pull the newly granted points from server-core back into playerData
+			-- immediately so the next DataStore write persists them without waiting for
+			-- a separate save cycle. This closes the split-brain gap between the two stores.
+			current.stats = ServerStateManager.getStats(userId)
 		end
 	end
 
@@ -515,16 +674,36 @@ local function executeEconomyDelta(payload)
 	end
 	current.items.AutoRoll2x20s = current.items.AutoRoll2x20s or 0
 
+	if #requestedConsumeCards > 0 then
+		local removalsRemaining = {}
+		for _, cardId in ipairs(requestedConsumeCards) do
+			removalsRemaining[cardId] = (removalsRemaining[cardId] or 0) + 1
+		end
+
+		local nextInventory = {}
+		for _, cardId in ipairs(current.inventory) do
+			if removalsRemaining[cardId] and removalsRemaining[cardId] > 0 then
+				removalsRemaining[cardId] = removalsRemaining[cardId] - 1
+				table.insert(consumedCards, cardId)
+			else
+				table.insert(nextInventory, cardId)
+			end
+		end
+		current.inventory = nextInventory
+	end
+
 	for _, cardId in ipairs(grantedCards) do
 		table.insert(current.inventory, cardId)
 	end
 
 	playerData[userId] = current
 	dirtyPlayers[userId] = true
-	tryPersistPlayerData(userId, userId)
+	-- Do not call tryPersistPlayerData here; periodic flush + PlayerRemoving handle persistence.
+	-- This prevents DataStore throttle overflow when auto-roll speed is very fast.
 
 	local economy = getEconomyState(userId)
 	economy.grantedCards = grantedCards
+	economy.consumedCards = consumedCards
 	return true, economy
 end
 
@@ -550,10 +729,31 @@ local function mergePlayerPatch(current, patch, playerName)
 
 		local currentOwned = buildOwnedCardCounts(current.inventory, current.combat)
 		local mergedOwned = buildOwnedCardCounts(merged.inventory, merged.combat)
+		local hasInflation = false
 		for cardId, ownedCount in pairs(mergedOwned) do
 			if ownedCount > (currentOwned[cardId] or 0) then
-				return nil, "Card ownership inflation blocked for " .. playerName .. " on card " .. tostring(cardId)
+				hasInflation = true
+				break
 			end
+		end
+		-- When client sends inflated inventory (e.g. stale UI after sell), use server's
+		-- authoritative inventory but accept client's combat deck (validated against inventory).
+		if hasInflation then
+			merged.inventory = current.inventory
+			-- Validate combat: each slot must have a card that exists in server inventory.
+			-- Track remaining count per card as we assign combat slots.
+			local remaining = buildOwnedCardCounts(current.inventory, {})
+			for i, cardRef in ipairs(merged.combat or {}) do
+				if type(cardRef) == "string" and cardRef ~= "" then
+					local norm = normalizeCardReference(cardRef)
+					if norm and (remaining[norm] or 0) > 0 then
+						remaining[norm] = (remaining[norm] or 1) - 1
+					else
+						merged.combat[i] = ""
+					end
+				end
+			end
+			merged.inventory, merged.combat = enforceUniqueTranscendentOwnership(merged.inventory, merged.combat)
 		end
 	end
 
@@ -570,16 +770,22 @@ local function mergePlayerPatch(current, patch, playerName)
 	-- Booster/item ownership is server-authoritative and intentionally
 	-- ignored from client save patches.
 
+	if type(patch.clientSettings) == "table" then
+		merged.clientSettings = {
+			ShowIdleRollCardNotifications = (patch.clientSettings.ShowIdleRollCardNotifications == true),
+		}
+	end
+
 	return merged
 end
 
 saveManagerBridge.OnInvoke = function(action, payload)
 	if action == "GetEconomyState" then
-		local userId = tonumber(payload)
-		if not userId then
+		local bridgeUserId = tonumber(payload)
+		if not bridgeUserId then
 			return false, "InvalidUserId"
 		end
-		return true, getEconomyState(userId)
+		return true, getEconomyState(bridgeUserId)
 	end
 
 	if action == "ExecuteEconomyDelta" then
@@ -590,19 +796,40 @@ saveManagerBridge.OnInvoke = function(action, payload)
 end
 
 saveEvent.OnServerEvent:Connect(function(player, data)
+	-- Split into two separate if blocks (not elseif) so each branch is an independent
+	-- statement; this avoids parser ambiguity that some LSP versions report on elseif.
 	if data == "RequestLoad" then
 		local loadedData = ensurePlayerDataLoaded(player.UserId, player.Name) or buildDefaultData()
-		saveEvent:FireClient(player, loadedData)
+		-- Always send reconciled stats so Points = (level - spent) regardless of
+		-- what the DataStore had cached. Server-core is the authoritative source.
+		local reconciledStats = ServerStateManager.getStats(player.UserId)
+		local requestSnapshot = {
+			inventory       = loadedData.inventory,
+			combat          = loadedData.combat,
+			rollCount       = loadedData.rollCount,
+			level           = loadedData.level,
+			coins           = loadedData.coins,
+			boosterPacks    = loadedData.boosterPacks,
+			items           = loadedData.items,
+			stats           = reconciledStats or loadedData.stats,
+			buffs           = AutoRollRuntime.GetBuffStateForPersistence(player.UserId),
+			clientSettings  = loadedData.clientSettings or { ShowIdleRollCardNotifications = true },
+		}
+		saveEvent:FireClient(player, requestSnapshot)
+		return
+	end
 
-	elseif type(data) == "table" then
-		local current = playerData[player.UserId] or ensurePlayerDataLoaded(player.UserId, player.Name) or buildDefaultData()
+	if type(data) == "table" then
+		local current = playerData[player.UserId]
+			or ensurePlayerDataLoaded(player.UserId, player.Name)
+			or buildDefaultData()
 		local merged, mergeErr = mergePlayerPatch(current, data, player.Name)
 		if not merged then
-			warn(mergeErr)
+			warn("[SaveManager] Merge rejected for ", player.Name, " — ", mergeErr)
 			return
 		end
 
-		-- Check data size (4MB limit)
+		-- Check data size (4 MB limit)
 		local dataSize = #HttpService:JSONEncode(merged)
 		if dataSize > DATASTORE_MAX_BYTES then
 			warn("Data too large for player " .. player.Name .. " (" .. dataSize .. " bytes)")
@@ -643,6 +870,7 @@ end)
 
 -- Save data when player leaves
 game.Players.PlayerRemoving:Connect(function(player)
+	task.wait(0.25) -- Brief grace for in-flight SaveDataEvent
 	local data = playerData[player.UserId]
 	if data then
 		pendingSave[player.UserId] = nil
@@ -671,6 +899,63 @@ game:BindToClose(function()
 	end
 end)
 
+-- Why: /resetrolls is the "start-anew" command used before launch. Every player field
+-- is wiped to defaults so no stale progression leaks into the fresh session.
+-- Server-core is repopulated via loadPlayerData (which runs ReconcileStatsToLevel)
+-- so Points are always authoritative from the first snapshot after the reset.
+local function resetAllPlayers(invoker)
+	local freshDefaults = buildDefaultData()
+
+	for userId, data in pairs(playerData) do
+		-- Overwrite every field rather than selectively zeroing to avoid silent
+		-- leaks when new fields are added in the future.
+		data.rollCount    = 0
+		data.level        = 1
+		data.coins        = 0
+		data.inventory    = {}
+		data.combat       = {}
+		data.boosterPacks = {}
+		data.items        = PlayerStateConstants.GetDefaultItems()
+		data.stats        = table.clone(freshDefaults.stats)
+		dirtyPlayers[userId] = true
+
+		-- Mirror full reset into server-core so point reconciliation is immediate.
+		local numericUserId = tonumber(userId)
+		if numericUserId then
+			pcall(ServerStateManager.loadPlayerData, numericUserId, data)
+			-- Fire StatsUpdatedEvent so Profile UI reflects reset points immediately
+			-- without the player needing to re-open the profile panel.
+			pcall(ServerStateManager.syncStatsToPlayer, numericUserId)
+		end
+
+		pcall(tryPersistPlayerData, userId, userId)
+
+		-- Send a complete reconciled snapshot so the client UI reflects the reset
+		-- without requiring a rejoin.
+		local resetPlayer = Players:GetPlayerByUserId(numericUserId)
+		if resetPlayer then
+			local reconciledStats = numericUserId and ServerStateManager.getStats(numericUserId) or data.stats
+			local resetSnapshot = {
+				inventory    = data.inventory,
+				combat       = data.combat,
+				rollCount    = data.rollCount,
+				level        = data.level,
+				coins        = data.coins,
+				boosterPacks = data.boosterPacks,
+				items        = data.items,
+				stats        = reconciledStats or data.stats,
+			}
+			pcall(saveEvent.FireClient, saveEvent, resetPlayer, resetSnapshot)
+		end
+	end
+
+	local invokerName = "server"
+	if invoker and invoker.Name then
+		invokerName = invoker.Name
+	end
+	print("[SaveManager] ResetAllPlayers called by", invokerName)
+end
+
 -- Export SaveManager as a module
 local SaveManager = {}
 SaveManager.playerData = playerData
@@ -679,22 +964,5 @@ SaveManager.tryPersistPlayerData = tryPersistPlayerData
 SaveManager.buildDefaultData = buildDefaultData
 SaveManager.getEconomyState = getEconomyState
 SaveManager.executeEconomyDelta = executeEconomyDelta
-local function resetAllPlayers(invoker)
-	for userId, data in pairs(playerData) do
-		data.rollCount = 0
-		data.level = 1
-		dirtyPlayers[userId] = true
-		pcall(function()
-			tryPersistPlayerData(userId, userId)
-		end)
-		local player = Players:GetPlayerByUserId(tonumber(userId))
-		if player then
-			pcall(function()
-				saveEvent:FireClient(player, { rollCount = 0, level = 1 })
-			end)
-		end
-	end
-	print("[SaveManager] ResetAllPlayers called by", (invoker and invoker.Name) or "server")
-end
 SaveManager.ResetAllPlayers = resetAllPlayers
 return SaveManager

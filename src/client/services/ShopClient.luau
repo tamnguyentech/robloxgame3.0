@@ -40,4 +40,15 @@ function ShopClient.UseItem(itemId, amount)
     return true, responseOrErr
 end
 
+function ShopClient.SellCards(cards)
+    local ok, responseOrErr = EconomyClient.Request(EconomyProtocol.ActionType.SellCards, {
+        cards = cards,
+    })
+    if not ok then
+        warn("[ShopClient] Failed to sell cards: " .. tostring(responseOrErr))
+        return false, tostring(responseOrErr)
+    end
+    return true, responseOrErr
+end
+
 return ShopClient

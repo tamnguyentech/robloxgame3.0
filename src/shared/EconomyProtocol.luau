@@ -11,6 +11,7 @@ EconomyProtocol.ActionType = {
 	OpenPack = "OpenPack",
 	BuyItem = "BuyItem",
 	UseItem = "UseItem",
+	SellCards = "SellCards",
 	BuyDirectCard = "BuyDirectCard",
 }
 

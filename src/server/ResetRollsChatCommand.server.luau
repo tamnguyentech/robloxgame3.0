@@ -1,5 +1,4 @@
--- Server-side chat command handler for /resetrolls
--- Place this in ServerScriptService or src/server/
+-- Server-side chat command handler for /resetrolls and /givecoins (usable by everyone for now; can restrict to admin later)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -10,49 +9,45 @@ if not ResetAllRollsEvent then
     ResetAllRollsEvent.Parent = ReplicatedStorage
 end
 
--- List of admin UserIds
-local ADMIN_USER_IDS = {
-    [12345678] = true, -- Replace with your UserId(s)
-    [87654321] = true,
-    [6020463235] = true,
-}
-
 Players.PlayerAdded:Connect(function(player)
     player.Chatted:Connect(function(msg)
-        print("[DEBUG] Player chatted:", player.Name, msg)
         local msgLower = msg:lower()
+
         if msgLower == "/resetrolls" then
-            print("[DEBUG] Detected /resetrolls command from", player.Name)
-        end
-        if msgLower == "/givecoins" then
-            print("[DEBUG] Detected /givecoins command from", player.Name)
-        end
-        if ADMIN_USER_IDS[player.UserId] then
-            print("[DEBUG] Player is admin:", player.Name, player.UserId)
-        else
-            print("[DEBUG] Player is NOT admin:", player.Name, player.UserId)
-        end
-        if msgLower == "/resetrolls" and ADMIN_USER_IDS[player.UserId] then
-            local SaveManager = require(script.Parent:FindFirstChild("SaveManager"))
+            local SaveManager = require(script.Parent:WaitForChild("SaveManager"))
             SaveManager.ResetAllPlayers(player)
-            print("[DEBUG] All player rolls and levels reset by", player.Name)
+            print("[ChatCmd] /resetrolls executed by", player.Name)
         end
 
-        if msgLower == "/givecoins" and ADMIN_USER_IDS[player.UserId] then
-            print("[DEBUG] Giving 100000 coins to", player.Name)
-            local SaveManager = require(script.Parent:FindFirstChild("SaveManager"))
+        if msgLower == "/givecoins" then
+            local SaveManager = require(script.Parent:WaitForChild("SaveManager"))
+            local ServerStateManager = require(script.Parent.core:WaitForChild("ServerStateManager"))
             local playerData = SaveManager.playerData
             local saveEvent = ReplicatedStorage:WaitForChild("SaveDataEvent")
             if playerData[player.UserId] then
-                playerData[player.UserId].coins = 100000
+                local data = playerData[player.UserId]
+                local grantAmount = 100000
+                local delta = grantAmount - math.max(0, math.floor(tonumber(data.coins) or 0))
+                data.coins = grantAmount
+                -- Keep server-core in sync so subsequent economy deltas use the right base.
+                if delta ~= 0 then
+                    ServerStateManager.addCoins(player.UserId, delta)
+                end
+                -- Fire a COMPLETE snapshot so the client does not wipe inventory/items/stats.
+                local reconciledStats = ServerStateManager.getStats(player.UserId)
                 saveEvent:FireClient(player, {
-                    coins = 100000,
-                    rollCount = playerData[player.UserId].rollCount,
-                    level = playerData[player.UserId].level,
+                    coins        = data.coins,
+                    rollCount    = data.rollCount,
+                    level        = data.level,
+                    inventory    = data.inventory,
+                    combat       = data.combat,
+                    boosterPacks = data.boosterPacks,
+                    items        = data.items,
+                    stats        = reconciledStats or data.stats,
                 })
-                print("[DEBUG] Coins granted to", player.Name)
+                print("[ChatCmd] /givecoins granted " .. grantAmount .. " coins to " .. player.Name)
             else
-                print("[DEBUG] No player data found for", player.Name)
+                warn("[ChatCmd] /givecoins – no player data for " .. player.Name)
             end
         end
     end)

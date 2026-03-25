@@ -47,7 +47,7 @@ function BoosterPacksTab.GetOrCreateFrame(mainUI, inventoryFrame)
 	boosterPacksFrame.CanvasSize = UDim2.fromOffset(0, 0)
 	boosterPacksFrame.Visible = false
 	boosterPacksFrame.Parent = (inventoryFrame and inventoryFrame.Parent) or mainUI
-	boosterPacksFrame.ZIndex = 10
+	boosterPacksFrame.ZIndex = 101
 
 	local title = Instance.new("TextLabel")
 	title.Name = "Title"

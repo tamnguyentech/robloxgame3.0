@@ -6,9 +6,14 @@ local RunService = game:GetService("RunService")
 local ContentProvider = game:GetService("ContentProvider")
 local Workspace = game:GetService("Workspace")
 
-local BattleProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BattleProtocol"))
-local cardArtFolder = ReplicatedStorage:WaitForChild("CardArt")
-local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local BattleProtocol     = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BattleProtocol"))
+local cardArtFolder      = ReplicatedStorage:WaitForChild("CardArt")
+local CardDatabase       = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local CardVisualResolver = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardVisualResolver"))
+local HoloFoilController = require(script.Parent.ui.effects:WaitForChild("HoloFoilController"))
+local RainbowBorderStroke = require(script.Parent.ui.effects:WaitForChild("RainbowBorderStroke"))
+local ClientStateManager = require(script.Parent.core:WaitForChild("ClientStateManager"))
+local DeviceContext = require(script.Parent.core:WaitForChild("DeviceContext"))
 -- Move the boss card (Perfect Cell) up when hit
 -- (Removed boss card hit movement logic)
 -- Removed unused cardArtFolder assignment
@@ -613,7 +618,7 @@ local function createBattleGui(payload)
 	local exitButton = Instance.new("TextButton")
 	exitButton.Name = "ExitBattleButton"
 	exitButton.AnchorPoint = Vector2.new(1, 0.5)
-	exitButton.Size = UDim2.fromOffset(136, 44)
+	exitButton.Size = UDim2.fromOffset(136, math.max(44, DeviceContext.getTouchTargetMin()))
 	exitButton.Position = UDim2.new(1, -18, 0.5, 0)
 	exitButton.BackgroundColor3 = Color3.fromRGB(172, 42, 42)
 	exitButton.BackgroundTransparency = 0.08
@@ -744,6 +749,7 @@ local function createDeckCardView(cardId)
 	art.ScaleType = resolveArtScaleType(data, nil)
 
 	local stroke = Instance.new("UIStroke")
+	stroke.Name = "CardBorderStroke"
 	stroke.Thickness = 1
 	stroke.Color = Color3.fromRGB(130, 154, 214)
 	stroke.Transparency = 0.24
@@ -982,6 +988,10 @@ local function renderDeckRow(deckSnapshot)
 		end
 	end
 
+	-- Resolve player FoilChance once for the whole deck build rather than per card.
+	local _stats = ClientStateManager.getStats and ClientStateManager.getStats() or {}
+	local _battleFoilChance = _stats.FoilChance or _stats.BorderChance or 0
+
 	for _, entry in ipairs(deckSnapshot) do
 		local cardId = entry.cardId
 		local slotIndex = entry.slotIndex
@@ -993,6 +1003,29 @@ local function renderDeckRow(deckSnapshot)
 		table.insert(uiState.deckCardsById[cardId], cardView)
 		if type(slotIndex) == "number" then
 			uiState.deckCardBySlot[slotIndex] = cardView
+		end
+
+		-- Apply holographic foil to bordered cards so the battle deck surface
+		-- matches what the player sees in Inventory.
+		local visualStyle = CardVisualResolver.resolve(cardId, _battleFoilChance, nil)
+		if visualStyle.isBordered then
+			local outerStroke = cardView:FindFirstChild("CardBorderStroke")
+				or cardView:FindFirstChildOfClass("UIStroke")
+			if outerStroke and outerStroke:IsA("UIStroke") then
+				if visualStyle.tierKey == "Rainbow" then
+					RainbowBorderStroke.attach(outerStroke)
+				else
+					RainbowBorderStroke.detach(outerStroke)
+					outerStroke.Color = visualStyle.strokeColor
+				end
+			end
+			local foilCtrl = HoloFoilController.Attach(cardView, visualStyle.foilOpts)
+			cardView.Destroying:Connect(function()
+				if outerStroke and outerStroke.Parent then
+					RainbowBorderStroke.detach(outerStroke)
+				end
+				foilCtrl:Destroy()
+			end)
 		end
 	end
 end

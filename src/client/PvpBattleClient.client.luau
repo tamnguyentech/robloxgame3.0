@@ -8,9 +8,14 @@ local ContentProvider = game:GetService("ContentProvider")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
-local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
-local PvpProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("PvpProtocol"))
-local cardArtFolder = ReplicatedStorage:WaitForChild("CardArt")
+local CardDatabase       = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local PvpProtocol        = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("PvpProtocol"))
+local CardVisualResolver = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardVisualResolver"))
+local HoloFoilController = require(script.Parent.ui.effects:WaitForChild("HoloFoilController"))
+local RainbowBorderStroke = require(script.Parent.ui.effects:WaitForChild("RainbowBorderStroke"))
+local ClientStateManager = require(script.Parent.core:WaitForChild("ClientStateManager"))
+local DeviceContext = require(script.Parent.core:WaitForChild("DeviceContext"))
+local cardArtFolder      = ReplicatedStorage:WaitForChild("CardArt")
 
 local remotesFolder = ReplicatedStorage:WaitForChild(PvpProtocol.Remotes.FolderName)
 local challengeRequestEvent = remotesFolder:WaitForChild(PvpProtocol.Remotes.ChallengeRequest)
@@ -745,7 +750,7 @@ local function createActionButton(label, angleRadians, color, onClick)
 	local button = Instance.new("TextButton")
 	button.Name = "ActionButton"
 	button.AnchorPoint = Vector2.new(0.5, 0.5)
-	button.Size = UDim2.fromOffset(92, 38)
+	button.Size = UDim2.fromOffset(92, math.max(38, DeviceContext.getTouchTargetMin()))
 	button.Position = UDim2.fromOffset(math.floor(x), math.floor(y))
 	button.BackgroundColor3 = color
 	button.BackgroundTransparency = 0.06
@@ -871,7 +876,7 @@ if not (inviteFrame and inviteFrame:IsA("Frame")) then
 
 	local accept = Instance.new("TextButton")
 	accept.Name = "Accept"
-	accept.Size = UDim2.fromOffset(150, 44)
+	accept.Size = UDim2.fromOffset(150, math.max(44, DeviceContext.getTouchTargetMin()))
 	accept.Position = UDim2.fromOffset(28, 118)
 	accept.BackgroundColor3 = Color3.fromRGB(38, 124, 72)
 	accept.BorderSizePixel = 0
@@ -887,7 +892,7 @@ if not (inviteFrame and inviteFrame:IsA("Frame")) then
 
 	local decline = Instance.new("TextButton")
 	decline.Name = "Decline"
-	decline.Size = UDim2.fromOffset(150, 44)
+	decline.Size = UDim2.fromOffset(150, math.max(44, DeviceContext.getTouchTargetMin()))
 	decline.Position = UDim2.fromOffset(202, 118)
 	decline.BackgroundColor3 = Color3.fromRGB(142, 48, 48)
 	decline.BorderSizePixel = 0
@@ -1049,7 +1054,7 @@ if not (battleFrame and battleFrame:IsA("Frame")) then
 
 	local surrender = Instance.new("TextButton")
 	surrender.Name = "Surrender"
-	surrender.Size = UDim2.fromOffset(152, 42)
+	surrender.Size = UDim2.fromOffset(152, math.max(44, DeviceContext.getTouchTargetMin()))
 	surrender.Position = UDim2.new(1, -164, 0, 12)
 	surrender.BackgroundColor3 = Color3.fromRGB(138, 40, 40)
 	surrender.BorderSizePixel = 0
@@ -1215,6 +1220,14 @@ local function createDeckCardView(state)
 	hpCorner.CornerRadius = UDim.new(0, 6)
 	hpCorner.Parent = hpLabel
 
+	local cardBorderStroke = Instance.new("UIStroke")
+	cardBorderStroke.Name = "CardBorderStroke"
+	cardBorderStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	cardBorderStroke.Thickness = 2
+	cardBorderStroke.Color = Color3.fromRGB(130, 154, 214)
+	cardBorderStroke.Transparency = 0.22
+	cardBorderStroke.Parent = frame
+
 	return frame
 end
 
@@ -1236,14 +1249,42 @@ local function renderPanel(panel, titleText, states)
 		end
 	end
 
+	-- Resolve FoilChance once for the whole deck render.
+	local _pvpStats = ClientStateManager.getStats and ClientStateManager.getStats() or {}
+	local _pvpFoilChance = _pvpStats.FoilChance or _pvpStats.BorderChance or 0
+
 	for i = 1, COMBAT_SLOT_COUNT do
 		local state = bySlot[i]
 		local cardName = "SlotCard" .. tostring(i)
 		local card = cardRow:FindFirstChild(cardName)
 		if state then
-			if not (card and card:IsA("Frame")) then
+			local isNewCard = not (card and card:IsA("Frame"))
+			if isNewCard then
 				card = createDeckCardView(state)
 				card.Parent = cardRow
+				-- Apply foil to bordered cards on first creation only (not on
+				-- stat-update rebuilds) so we don't double-attach the overlay.
+				local visualStyle = CardVisualResolver.resolve(
+					tostring(state.cardId or ""), _pvpFoilChance, nil
+				)
+				if visualStyle.isBordered then
+					local outerStroke = card:FindFirstChild("CardBorderStroke")
+					if outerStroke and outerStroke:IsA("UIStroke") then
+						if visualStyle.tierKey == "Rainbow" then
+							RainbowBorderStroke.attach(outerStroke)
+						else
+							RainbowBorderStroke.detach(outerStroke)
+							outerStroke.Color = visualStyle.strokeColor
+						end
+					end
+					local foilCtrl = HoloFoilController.Attach(card, visualStyle.foilOpts)
+					card.Destroying:Connect(function()
+						if outerStroke and outerStroke.Parent then
+							RainbowBorderStroke.detach(outerStroke)
+						end
+						foilCtrl:Destroy()
+					end)
+				end
 			end
 
 			local nameLabel = card:FindFirstChild("NameLabel")

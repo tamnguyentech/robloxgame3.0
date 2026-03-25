@@ -1,6 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local EconomyProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("EconomyProtocol"))
+local ClientStateManager = require(script.Parent.Parent.core:WaitForChild("ClientStateManager"))
 
 local EconomyClient = {}
 
@@ -34,10 +35,14 @@ local function getOrCreateBindableEvent(name)
 	return ev
 end
 
+local idleEvent = getOrCreateBindableEvent("IdleCardEvent")
+
 local function applyEconomyState(state)
 	if type(state) ~= "table" then
 		return
 	end
+
+	ClientStateManager.syncFromServer(state)
 
 	local currency = ensureIntValue("PlayerCurrencyValue")
 	if type(state.coins) == "number" then
@@ -45,10 +50,13 @@ local function applyEconomyState(state)
 	end
 
 	local autoRollOwned = ensureIntValue("ItemOwned_AutoRoll2x20s")
+	local luckPotionOwned = ensureIntValue("ItemOwned_LuckPotion")
 	if type(state.items) == "table" then
 		autoRollOwned.Value = math.max(0, math.floor(tonumber(state.items.AutoRoll2x20s) or 0))
+		luckPotionOwned.Value = math.max(0, math.floor(tonumber(state.items.LuckPotion) or 0))
 	else
 		autoRollOwned.Value = 0
+		luckPotionOwned.Value = 0
 	end
 
 	if type(state.boosterPacks) == "table" then
@@ -82,6 +90,15 @@ function EconomyClient.Request(actionType, payload)
 		applyEconomyState(response.state)
 	end
 
+	-- Fire idleEvent when cards are granted (from packs or direct purchases)
+	if response.ok and type(response.grantedCards) == "table" and #response.grantedCards > 0 then
+		idleEvent:Fire({
+			cardIds = response.grantedCards,
+			rollCount = response.state and response.state.rollCount,
+			level = response.state and response.state.level,
+		})
+	end
+
 	if response.ok then
 		return true, response
 	end
@@ -95,6 +112,19 @@ function EconomyClient.SyncState()
 		return false, responseOrErr
 	end
 	return true, responseOrErr
+end
+
+-- Sell a selection of cards server-authoritatively.
+-- selectionDict: { [cardRef: string] = count: number }
+-- Returns (ok: boolean, responseOrReason)
+-- On success, the response contains soldCoins and consumedCards.
+function EconomyClient.SellCards(selectionDict)
+	if type(selectionDict) ~= "table" then
+		return false, "InvalidSelection"
+	end
+	return EconomyClient.Request(EconomyProtocol.ActionType.SellCards, {
+		cards = selectionDict,
+	})
 end
 
 return EconomyClient

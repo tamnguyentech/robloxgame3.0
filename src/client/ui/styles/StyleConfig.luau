@@ -17,5 +17,6 @@ return {
     Sizes = {
         ToggleButton = UDim2.fromOffset(108, 36),
         Modal = UDim2.fromOffset(760, 320),
+        TouchTargetMin = 44,  -- Apple HIG minimum for mobile; use DeviceContext.getTouchTargetMin() at runtime
     },
 }

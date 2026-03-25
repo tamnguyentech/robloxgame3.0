@@ -4,20 +4,15 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
 local IdleRollProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("IdleRollProtocol"))
+local BalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BalanceConfig"))
 local AutoRollRuntime = require(script.Parent:WaitForChild("AutoRollRuntime"))
+local PlayerStatsService = require(script.Parent:WaitForChild("PlayerStatsService"))
 
 local saveManagerBridge = ServerStorage:WaitForChild("SaveManagerBridge")
 
-local BASE_AUTO_ROLL_INTERVAL = 2
-local TICK_INTERVAL = 0.2
-
-local IDLE_ROLL_RARITY_RATES = {
-	God = 0.01,
-	Legendary = 1,
-	Epic = 9,
-	Rare = 30,
-	Uncommon = 59.99,
-}
+-- Use values from BalanceConfig for easy patching
+local BASE_AUTO_ROLL_INTERVAL = BalanceConfig.BASE_AUTO_ROLL_INTERVAL
+local TICK_INTERVAL = BalanceConfig.TICK_INTERVAL
 
 local elapsedByUserId = {}
 local autoRollEnabledByUserId = {}
@@ -75,15 +70,19 @@ controlEvent.OnServerEvent:Connect(function(player, payload)
 	end
 end)
 
-local function pickIdleRollRarity()
+-- Luck affects ONLY card rarity (God/Legendary/Epic/Rare/Uncommon). Foil chance
+-- and foil tier are controlled solely by the FoilChance stat; no cross-coupling.
+local function pickIdleRollRarity(totalLuck)
+	local adjustedRates = BalanceConfig.GetRarityRatesWithLuck(totalLuck)
+	
 	local roll = math.random() * 100
 	local running = 0
 	for _, entry in ipairs({
-		{rarity = "God", weight = IDLE_ROLL_RARITY_RATES.God},
-		{rarity = "Legendary", weight = IDLE_ROLL_RARITY_RATES.Legendary},
-		{rarity = "Epic", weight = IDLE_ROLL_RARITY_RATES.Epic},
-		{rarity = "Rare", weight = IDLE_ROLL_RARITY_RATES.Rare},
-		{rarity = "Uncommon", weight = IDLE_ROLL_RARITY_RATES.Uncommon},
+		{rarity = "God", weight = adjustedRates.God},
+		{rarity = "Legendary", weight = adjustedRates.Legendary},
+		{rarity = "Epic", weight = adjustedRates.Epic},
+		{rarity = "Rare", weight = adjustedRates.Rare},
+		{rarity = "Uncommon", weight = adjustedRates.Uncommon},
 	}) do
 		running += entry.weight
 		if roll <= running then
@@ -93,8 +92,8 @@ local function pickIdleRollRarity()
 	return "Uncommon"
 end
 
-local function pickIdleRollCardId()
-	local rarity = pickIdleRollRarity()
+local function pickIdleRollCardId(totalLuck)
+	local rarity = pickIdleRollRarity(totalLuck)
 	local pool = {}
 	for _, cardId in ipairs(CardDatabase.GetCardsByRarity(rarity)) do
 		local data = CardDatabase.GetCardData(cardId)
@@ -117,10 +116,21 @@ local function pickIdleRollCardId()
 end
 
 local function grantIdleCard(player, cardId)
+	-- CalculateFoilChancePercent returns a percentage value (e.g. 0.25 for 0.25%).
+	-- Divide by 100 to convert to a [0,1] probability before comparing with math.random().
+	-- math.random() with no args is uniform [0,1) — correct for fractional probabilities.
+	local foilChance = PlayerStatsService.GetFoilChance(player)
+	local foilPercent = BalanceConfig.CalculateFoilChancePercent(foilChance)
+	local isFoiled = math.random() < (foilPercent / 100)
+	-- Roll tier via weighted probability — all tiers always rollable, no threshold gates.
+	-- FoilChance points shift weight toward rarer tiers as a reward, not a requirement.
+	local foilTier = BalanceConfig.RollFoilTier(foilChance)
+	local finalCardRef = isFoiled and (cardId .. "::Foil::" .. foilTier) or cardId
+	
 	local ok, success, stateOrReason = pcall(function()
 		return saveManagerBridge:Invoke("ExecuteEconomyDelta", {
 			userId = player.UserId,
-			grantCards = {cardId},
+			grantCards = {finalCardRef},
 			rollCountDelta = 1,
 		})
 	end)
@@ -136,10 +146,13 @@ local function grantIdleCard(player, cardId)
 
 	local state = (type(stateOrReason) == "table") and stateOrReason or nil
 
+	-- Include reconciled stats in every reward so the client Profile UI updates
+	-- Points correctly even if StatsUpdatedEvent arrives out of order or is missed.
 	rewardEvent:FireClient(player, {
-		cardId = cardId,
+		cardId    = cardId,
 		rollCount = state and state.rollCount,
-		level = state and state.level,
+		level     = state and state.level,
+		stats     = state and state.stats,
 	})
 end
 
@@ -153,12 +166,17 @@ task.spawn(function()
 			end
 
 			local multiplier = AutoRollRuntime.GetAutoRollMultiplier(player.UserId)
-			local interval = BASE_AUTO_ROLL_INTERVAL / multiplier
+			-- Use BalanceConfig for roll speed calculation
+			local rollSpeed = PlayerStatsService.GetRollSpeed(player)
+			local speedMultiplier = BalanceConfig.CalculateRollSpeedMultiplier(rollSpeed)
+			local interval = (BASE_AUTO_ROLL_INTERVAL / multiplier) * speedMultiplier
 			local currentElapsed = (elapsedByUserId[player.UserId] or 0) + TICK_INTERVAL
 
 			while currentElapsed >= interval do
 				currentElapsed -= interval
-				local cardId = pickIdleRollCardId()
+				-- Luck (base + potion bonus) affects card rarity only. FoilChance is separate.
+				local luck = PlayerStatsService.GetLuck(player)
+				local cardId = pickIdleRollCardId(luck)
 				if cardId then
 					grantIdleCard(player, cardId)
 				end

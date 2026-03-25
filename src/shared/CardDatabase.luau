@@ -12,36 +12,14 @@ local DEFAULT_CARD_TEMPLATE = {
     AbilityCooldownSeconds = 10,
 }
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local BalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BalanceConfig"))
+
 -- Duplicate DEFAULT_CARD_TEMPLATE removed; definition is at top of file
 local CardDatabase = {}
 
-local function deriveDefaultHealth(attackValue)
-    local atk = math.max(1, math.floor(tonumber(attackValue) or DEFAULT_CARD_TEMPLATE.Attack))
-    return math.max(60, atk)
-end
-
-local function sanitizeHealth(value, attackValue)
-    if type(value) == "number" then
-        return math.max(1, math.floor(value))
-    else
-        return deriveDefaultHealth(attackValue)
-    end
-end
 local cardData = {
- ["TestBattleCard"] = {
-        Name = "Test Battle Card",
-        Attack = 1000,
-        Health = 500000000,
-        AttackIntervalSeconds = 2.0,
-        Category = "Testing",
-        Rarity = "Uncommon",
-        ArtFitMode = "Fit",
-        ArtAssetId = "",
-        AbilityId = "Fireball",
-        AbilityCooldownSeconds = 8,
-        Description = "A card for testing battle UI attack animations. Fires a fireball every 8 seconds.",
-        },
-["BeliodusX"] = {
+    ["BeliodusX"] = {
         Name = "BeliodusX",
         Attack = 1200000000,
         Health = 10800000000,
@@ -53,375 +31,1179 @@ local cardData = {
         AbilityId = "",
         AbilityCooldownSeconds = 10,
     },
-    ["3starichigo"] = {
-        Name = "3 Star Ichigo",
-        Attack = 7800,
-        Health = 31200,
+    ["lightyagami"] = {
+        Name = "Death Writer",
+        Attack = 100000,
+        Health = 400000,
         AttackIntervalSeconds = 5.0,
-        Category = "Bleach",
-        Rarity = "Uncommon",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://113419295602949",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-    },
-    ["5stargoku"] = {
-        Name = "5 Star Goku",
-        Attack = 960000,
-        Health = 5568000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Dragon Ball",
+        Category = "Custom",
         Rarity = "Epic",
         ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://105792393608386",
+        ArtAssetId = "rbxassetid://94327015801389",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
+        Description = "Uncommon custom card.",
     },
-    ["madara"] = {
-        Name = "Madara",
-        Attack = 10600000,
-        Health = 72080000,
+    ["johnathanjoestar"] = {
+        Name = "Hamon Gentleman",
+        Attack = 1100,
+        Health = 4200,
         AttackIntervalSeconds = 5.0,
-        Category = "Naruto",
+        Category = "Custom",
+        Rarity = "Uncommon",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://84035880933924",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Uncommon custom card.",
+    },
+    ["armin"] = {
+        Name = "Genius Scout",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Uncommon",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://115526881157290",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Uncommon custom card.",
+    },
+    ["asta"] = {
+        Name = "Manaless Wizard",
+        Attack = 1300000,
+        Health = 4600000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
         Rarity = "Legendary",
         ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://115153376153015",
+        ArtAssetId = "rbxassetid://112767549806462",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
+        Description = "Uncommon custom card.",
     },
-    ["6starsasuke"] = {
-        Name = "6 Star Sasuke",
-        Attack = 10800000,
-        Health = 73440000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Naruto",
-        Rarity = "Legendary",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://112851292752523",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-    },
-    ["Ichigo"] = {
-        Name = "Ichigo Bankai",
-        Attack = 95000,
-        Health = 475000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Bleach",
-        Rarity = "Rare",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://84432451881153",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-    },
-    -- Placeholder Uncommon cards
-    ["placeholder1"] = {
-        Name = "Placeholder 1",
-        Attack = 100,
-        Health = 400,
-        AttackIntervalSeconds = 5.0,
-        Category = "Placeholder",
-        Rarity = "Uncommon",
-        ArtFitMode = "Fit",
-        ArtAssetId = "",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-        Description = "Uncommon placeholder card 1.",
-    },
-    ["placeholder2"] = {
-        Name = "Placeholder 2",
-        Attack = 110,
-        Health = 420,
-        AttackIntervalSeconds = 5.0,
-        Category = "Placeholder",
-        Rarity = "Uncommon",
-        ArtFitMode = "Fit",
-        ArtAssetId = "",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-        Description = "Uncommon placeholder card 2.",
-    },
-    ["placeholder3"] = {
-        Name = "Placeholder 3",
-        Attack = 120,
-        Health = 440,
-        AttackIntervalSeconds = 5.0,
-        Category = "Placeholder",
-        Rarity = "Uncommon",
-        ArtFitMode = "Fit",
-        ArtAssetId = "",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-        Description = "Uncommon placeholder card 3.",
-    },
-    ["placeholder4"] = {
-        Name = "Placeholder 4",
-        Attack = 130,
-        Health = 460,
-        AttackIntervalSeconds = 5.0,
-        Category = "Placeholder",
-        Rarity = "Uncommon",
-        ArtFitMode = "Fit",
-        ArtAssetId = "",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-        Description = "Uncommon placeholder card 4.",
-    },
-    ["placeholder5"] = {
-        Name = "Placeholder 5",
+    ["bojji"] = {
+        Name = "Mirai",
         Attack = 140,
         Health = 480,
         AttackIntervalSeconds = 5.0,
-        Category = "Placeholder",
+        Category = "Custom",
         Rarity = "Uncommon",
         ArtFitMode = "Fit",
-        ArtAssetId = "",
+        ArtAssetId = "rbxassetid://118551319885422",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Uncommon placeholder card 5.",
+        Description = "Uncommon custom card.",
     },
-    -- Placeholder Rare cards
-    ["placeholder6"] = {
-        Name = "Placeholder 6",
-        Attack = 200,
-        Health = 600,
+    ["denji"] = {
+        Name = "Women Seeking Hunter",
+        Attack = 20000,
+        Health = 60000,
         AttackIntervalSeconds = 5.0,
-        Category = "Placeholder",
+        Category = "Custom",
         Rarity = "Rare",
         ArtFitMode = "Fit",
-        ArtAssetId = "",
+        ArtAssetId = "rbxassetid://111215871489552",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare placeholder card 1.",
+        Description = "Rare custom card.",
     },
-    ["placeholder7"] = {
-        Name = "Placeholder 7",
-        Attack = 210,
-        Health = 620,
+    ["edwardelric"] = {
+        Name = "Metal Alchemist",
+        Attack = 210000,
+        Health = 620000,
         AttackIntervalSeconds = 5.0,
-        Category = "Placeholder",
+        Category = "Custom",
         Rarity = "Rare",
         ArtFitMode = "Fit",
-        ArtAssetId = "",
+        ArtAssetId = "rbxassetid://139542750963805",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare placeholder card 2.",
+        Description = "Rare custom card.",
     },
-    ["placeholder8"] = {
-        Name = "Placeholder 8",
-        Attack = 220,
-        Health = 640,
+    ["gon"] = {
+        Name = "Rookie Hunter",
+        Attack = 22000,
+        Health = 64000,
         AttackIntervalSeconds = 5.0,
-        Category = "Placeholder",
+        Category = "Custom",
         Rarity = "Rare",
         ArtFitMode = "Fit",
-        ArtAssetId = "",
+        ArtAssetId = "rbxassetid://119477439205269",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare placeholder card 3.",
+        Description = "Rare custom card.",
     },
-    ["placeholder9"] = {
-        Name = "Placeholder 9",
-        Attack = 230,
-        Health = 660,
+    ["kiba"] = {
+        Name = "Dog Breeding Ninja",
+        Attack = 23000,
+        Health = 66000,
         AttackIntervalSeconds = 5.0,
-        Category = "Placeholder",
+        Category = "Custom",
         Rarity = "Rare",
         ArtFitMode = "Fit",
-        ArtAssetId = "",
+        ArtAssetId = "rbxassetid://75583669154514",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare placeholder card 4.",
+        Description = "Rare custom card.",
     },
-    ["placeholder10"] = {
-        Name = "Placeholder 10",
-        Attack = 240,
-        Health = 680,
+    ["kidcoby"] = {
+        Name = "Coward of Justice",
+        Attack = 2400,
+        Health = 6800,
         AttackIntervalSeconds = 5.0,
-        Category = "Placeholder",
-        Rarity = "Rare",
+        Category = "Custom",
+        Rarity = "Uncommon",
         ArtFitMode = "Fit",
-        ArtAssetId = "",
+        ArtAssetId = "rbxassetid://74953934441998",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare placeholder card 5.",
+        Description = "Rare custom card.",
     },
-    ["6eyesgojo"] = {
-        Name = "6 Eyes Gojo",
-        Attack = 10200000,
-        Health = 69360000,
+    ["killua"] = {
+        Name = "Assassin Hunter",
+        Attack = 250000,
+        Health = 750000,
         AttackIntervalSeconds = 5.0,
-        Category = "JJK",
-        Rarity = "Legendary",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://74379319306487",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-    },
-    ["Goku6Star"] = {
-        Name = "Goku Super Saiyan 6 Star",
-        Attack = 10000000,
-        Health = 68000000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Dragon Ball",
-        Rarity = "Legendary",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://82764909562066",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-    },
-    ["Luffy"] = {
-        Name = "Luffy Gear 5",
-        Attack = 900000,
-        Health = 5220000,
-        AttackIntervalSeconds = 5.0,
-        Category = "One Piece",
+        Category = "Custom",
         Rarity = "Epic",
         ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://92351628707902",
+        ArtAssetId = "rbxassetid://73858850936933",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
+        Description = "Rare custom card.",
     },
-    ["baryonnaruto"] = {
-        Name = "Baryon Naruto",
-        Attack = 11600000,
-        Health = 78880000,
+    ["naruto"] = {
+        Name = "Knucklehead Ninja",
+        Attack = 27000,
+        Health = 81000,
         AttackIntervalSeconds = 5.0,
-        Category = "Naruto",
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://76654451871487",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Rare custom card.",
+    },
+    ["lisalisa"] = {
+        Name = "Hamon Mentor",
+        Attack = 29000,
+        Health = 87000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://74695816890751",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Rare custom card.",
+    },
+    ["masterroshi"] = {
+        Name = "Turtle Hermit",
+        Attack = 31000,
+        Health = 93000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://100086228347779",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Rare custom card.",
+    },
+    ["mob"] = {
+        Name = "Restrained Esper",
+        Attack = 3300,
+        Health = 9900,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Uncommon",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://109730325430363",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Rare custom card.",
+    },
+    ["mrsatan"] = {
+        Name = "Martial Arts Champion",
+        Attack = 3500,
+        Health = 10500,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Uncommon",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://133628416601785",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Rare custom card.",
+    },
+    ["natsu"] = {
+        Name = "Fire Salamander",
+        Attack = 100000,
+        Health = 500000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://125732494372665",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["saibaman"] = {
+        Name = "Explosive Plant ",
+        Attack = 1200,
+        Health = 6000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Uncommon",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://106682466467156",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["sakura"] = {
+        Name = "Pink Ninja",
+        Attack = 140000,
+        Health = 700000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://84478360843205",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["blueslime"] = {
+        Name = "Blue Slime",
+        Attack = 1600,
+        Health = 8000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Uncommon",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://128109245961112",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["sungjinwoo"] = {
+        Name = "F Rank Hunter",
+        Attack = 1800,
+        Health = 9000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Uncommon",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://87343609974295",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["yugi"] = {
+        Name = "King of Games",
+        Attack = 200000,
+        Health = 1000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://125072644833143",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["genya"] = {
+        Name = "Demon Eating Swordsman",
+        Attack = 22000,
+        Health = 110000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://79714372400036",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["luffy"] = {
+        Name = "Straw Hat",
+        Attack = 24000,
+        Health = 30000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://86790998588928",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["arima"] = {
+        Name = "Aurarima",
+        Attack = 26000000,
+        Health = 130000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
         Rarity = "Legendary",
         ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://12396312672063",
+        ArtAssetId = "rbxassetid://124257683228455",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
     },
-    ["basegoku"] = {
-        Name = "Base Goku",
-        Attack = 680,
-        Health = 2720,
+    ["supervegeta"] = {
+        Name = "Super Vegan",
+        Attack = 280000,
+        Health = 1400000,
         AttackIntervalSeconds = 5.0,
-        Category = "Dragon Ball",
-        Rarity = "Common",
+        Category = "Custom",
+        Rarity = "Epic",
         ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://118382667127063",
+        ArtAssetId = "rbxassetid://81103831884990",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
     },
-    ["baseluffy"] = {
-        Name = "Base Luffy",
-        Attack = 660,
-        Health = 2640,
+    ["majinbuu"] = {
+        Name = "King Bau",
+        Attack = 300000,
+        Health = 1500000,
         AttackIntervalSeconds = 5.0,
-        Category = "One Piece",
-        Rarity = "Common",
+        Category = "Custom",
+        Rarity = "Epic",
         ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://127023895994725",
+        ArtAssetId = "rbxassetid://76060963956133",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
     },
-    ["darkmonarch"] = {
-        Name = "Dark Monarch",
-        Attack = 11200000,
-        Health = 76160000,
+    ["cell"] = {
+        Name = "Ultimate Mitosis",
+        Attack = 320000,
+        Health = 1600000,
         AttackIntervalSeconds = 5.0,
-        Category = "Solo Leveling",
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://93094320882806",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["ichigo"] = {
+        Name = "Substitute Shinigami",
+        Attack = 34000,
+        Health = 50000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://120615459234079",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["KidNaruto"] = {
+        Name = "Knucklehead Ninja (Kid)",
+        Attack = 36000,
+        Health = 68000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://98021691212672",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["kidgoku"] = {
+        Name = "Earth's Defender (Kid)",
+        Attack = 38000,
+        Health = 80000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://72331545229425",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["emiyashirou"] = {
+        Name = "Projection Mage",
+        Attack = 40000000,
+        Health = 200000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
         Rarity = "Legendary",
         ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://13047459202802",
+        ArtAssetId = "rbxassetid://79189848936927",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
     },
-    ["gear2luffy"] = {
-        Name = "Gear 2 Luffy",
+    ["onepunchman"] = {
+        Name = "Bald Hero",
+        Attack = 420000,
+        Health = 2100000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://105179177507876",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Erwin"] = {
+        Name = "Scout Commander",
+        Attack = 440000,
+        Health = 2200000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://123764198228582",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["25thbaam"] = {
+        Name = "Irregular",
+        Attack = 160000000,
+        Health = 230000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://117036576029292",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["touma"] = {
+        Name = "Twoma",
+        Attack = 4800000,
+        Health = 24000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://123401161010160",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["mikasa"] = {
+        Name = "Mikosa",
+        Attack = 50000,
+        Health = 250000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://138354277926400",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["SolarisWitch"] = {
+        Name = "Solaris Witch",
+        Attack = 110000000,
+        Health = 80000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://89844517591936",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["PsyKing"] = {
+        Name = "Psy King",
+        Attack = 150000000,
+        Health = 200000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://127321903075119",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["TinTin"] = {
+        Name = "TinTin",
+        Attack = 5600,
+        Health = 28000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Uncommon",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://129250568589572",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Hamcha"] = {
+        Name = "Hamcha",
+        Attack = 58000,
+        Health = 290000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://89119667852200",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Chillin"] = {
+        Name = "Chillin",
+        Attack = 60000,
+        Health = 300000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://108249090376433",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Bimibaru"] = {
+        Name = "Bimibaru",
+        Attack = 620000,
+        Health = 3100000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://78405085193341",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Zaza"] = {
+        Name = "Zaza",
+        Attack = 640000,
+        Health = 3200000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://70396265517152",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Kagara"] = {
+        Name = "Kagara",
+        Attack = 30000000,
+        Health = 80000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://130749447452005",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Legendary custom card.",
+    },
+    ["Oshimoru"] = {
+        Name = "Oshimoru",
+        Attack = 45000000,
+        Health = 56000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://132638306722484",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Legendary custom card.",
+    },
+    ["BeastNurudo"] = {
+        Name = "Beast Nurudo",
+        Attack = 660000,
+        Health = 3300000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://104401685586690",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Bakashi"] = {
+        Name = "Bakashi",
+        Attack = 680000,
+        Health = 3400000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://113390490720780",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Deji"] = {
+        Name = "Deji",
+        Attack = 70000,
+        Health = 350000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://114174829826817",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Pocky"] = {
+        Name = "Pocky",
+        Attack = 72000,
+        Health = 360000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://93123386103288",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Narutobi"] = {
+        Name = "Narutobi",
+        Attack = 7400000,
+        Health = 37000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://71720529372306",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Shiniparu"] = {
+        Name = "Shiniparu",
+        Attack = 760000,
+        Health = 3800000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://112990377291091",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Koro"] = {
+        Name = "Koro",
+        Attack = 78000,
+        Health = 390000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://81669998482188",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["CursedZosuke"] = {
+        Name = "Cursed Zosuke",
+        Attack = 100000000,
+        Health = 90000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://106883272275852",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Pippolo"] = {
+        Name = "Pippolo",
         Attack = 82000,
         Health = 410000,
         AttackIntervalSeconds = 5.0,
-        Category = "One Piece",
+        Category = "Custom",
         Rarity = "Rare",
         ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://136632389304386",
+        ArtAssetId = "rbxassetid://112268337007455",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
     },
-    ["gear4luffy"] = {
-        Name = "Gear 4 Luffy",
-        Attack = 10400000,
-        Health = 70720000,
+    ["Nakama"] = {
+        Name = "Nakama",
+        Attack = 84000,
+        Health = 420000,
         AttackIntervalSeconds = 5.0,
-        Category = "One Piece",
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://135464233858566",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Vegan"] = {
+        Name = "Vegan",
+        Attack = 86000,
+        Health = 430000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://129721390377551",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Jinyu"] = {
+        Name = "Jinyu",
+        Attack = 88000,
+        Health = 440000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://110114431747693",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Freezer"] = {
+        Name = "Freezer",
+        Attack = 90000000,
+        Health = 455000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
         Rarity = "Legendary",
         ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://86341908730944",
+        ArtAssetId = "rbxassetid://132241129797306",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
     },
-    ["gilgamesh"] = {
-        Name = "Gilgamesh",
-        Attack = 980000,
-        Health = 5684000,
+    ["SuperBoku"] = {
+        Name = "Super Boku",
+        Attack = 92000000,
+        Health = 465000000,
         AttackIntervalSeconds = 5.0,
-        Category = "Fate",
-        Rarity = "Epic",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://118315311217022",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-    },
-    ["kaguya"] = {
-        Name = "Kaguya",
-        Attack = 11100000,
-        Health = 75480000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Naruto",
+        Category = "Custom",
         Rarity = "Legendary",
         ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://98886538909384",
+        ArtAssetId = "rbxassetid://100058730390303",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
     },
-    ["maskedichigo"] = {
-        Name = "Masked Ichigo",
-        Attack = 920000,
-        Health = 5336000,
+    ["LarrenYoger"] = {
+        Name = "Larren Yoger",
+        Attack = 94000,
+        Health = 470000,
         AttackIntervalSeconds = 5.0,
-        Category = "Bleach",
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://124181131548110",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["BigGiant"] = {
+        Name = "Big Giant",
+        Attack = 9600000,
+        Health = 4800000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
         Rarity = "Epic",
         ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://82764909562066",
+        ArtAssetId = "rbxassetid://86629198295971",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
     },
-    ["Asuna"] = {
-        Name = "Asuna",
-        Attack = 1250000,
-        Health = 8250000,
+    ["ArmoredGiant"] = {
+        Name = "Armored Giant",
+        Attack = 9800000,
+        Health = 49000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://115234694388580",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["GorillaGiant"] = {
+        Name = "Gorilla Giant",
+        Attack = 10000000,
+        Health = 50000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://115988826643837",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Revy"] = {
+        Name = "Revy",
+        Attack = 10200000,
+        Health = 5100000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://93933871364780",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["rui"] = {
+        Name = "Loui",
+        Attack = 104000,
+        Health = 520000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://109019402944199",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["GirlGiant"] = {
+        Name = "Girl Giant",
+        Attack = 10800000,
+        Health = 54000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://118313632487592",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["enmu"] = {
+        Name = "Inma",
+        Attack = 11000000,
+        Health = 55000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://112104829546175",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Giyutu"] = {
+        Name = "Giyutu",
+        Attack = 11200000,
+        Health = 56000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://80924145111655",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["mastereduigoku"] = {
+        Name = "Omega Boku",
+        Attack = 1140000000,
+        Health = 5700000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "God",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://140539112286647",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["sinbad"] = {
+        Name = "Zinba Lightning God",
+        Attack = 1160000000,
+        Health = 5800000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "God",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://96720792003088",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["Wantengo"] = {
+        Name = "Wantengo",
+        Attack = 11600000,
+        Health = 58000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://98217450101948",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["daki"] = {
+        Name = "Saki",
+        Attack = 11600000,
+        Health = 58000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://135120754795304",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["gyokko"] = {
+        Name = "Kyoko",
+        Attack = 11600000,
+        Health = 58000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://115794821435062",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["mitsuri"] = {
+        Name = "Catsuri",
+        Attack = 118000000,
+        Health = 590000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://82202474274633",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["inosuke"] = {
+        Name = "Boar Bandit",
+        Attack = 35000000,
+        Health = 90000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://93321513087787",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Legendary custom card.",
+    },
+    ["nezuko"] = {
+        Name = "Yesuko",
+        Attack = 12200000,
+        Health = 61000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Epic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://101061610934105",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Epic custom card.",
+    },
+    ["tanjiro"] = {
+        Name = "Banjoro",
+        Attack = 55000000,
+        Health = 140000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://114299715654896",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Legendary custom card.",
+    },
+    ["zenitsu"] = {
+        Name = "Tenzetsu",
+        Attack = 75000000,
+        Health = 190000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://131041870279708",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Legendary custom card.",
+    },
+    ["shinobu"] = {
+        Name = "Shinoko",
+        Attack = 80000000,
+        Health = 200000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://71661611456386",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Legendary custom card.",
+    },
+    ["muichiro"] = {
+        Name = "Mochirow",
+        Attack = 85000000,
+        Health = 210000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://104738991259225",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Legendary custom card.",
+    },
+    ["rengoku"] = {
+        Name = "Ringkou",
+        Attack = 90000000,
+        Health = 220000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://90496984463626",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Legendary custom card.",
+    },
+    ["tengen"] = {
+        Name = "Ninegen",
+        Attack = 95000000,
+        Health = 230000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://80771976298860",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Legendary custom card.",
+    },
+    ["giyuu"] = {
+        Name = "Kiyou",
+        Attack = 100000000,
+        Health = 240000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://117691618947027",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "Legendary custom card.",
+    },
+    ["asuna"] = {
+        Name = "Arune",
+        Attack = 12500,
+        Health = 82500,
         AttackIntervalSeconds = 5.0,
         Category = "Sword Art Online",
         Rarity = "Rare",
         ArtFitMode = "Crop",
-        ArtAssetId = "rbxassetid://72026872165398",
+        ArtAssetId = "rbxassetid://86073937479874",
         AbilityId = "AttackSpeedBoost",
         AbilityCooldownSeconds = 12
     },
-    ["Tamayo"] = {
-        Name = "Tamayo",
-        Attack = 980000,
-        Health = 8900000,
+    ["misaamane"] = {
+        Name = "Lisa Enmane",
+        Attack = 98000,
+        Health = 89000,
         AttackIntervalSeconds = 5.0,
         Category = "Demon Slayer",
         Rarity = "Rare",
         ArtFitMode = "Crop",
-        ArtAssetId = "rbxassetid://80254295466382",
+        ArtAssetId = "rbxassetid://139639316125366",
         AbilityId = "AttackDamageBoost",
         AbilityCooldownSeconds = 15
     },
-    ["Aqua"] = {
-        Name = "Aqua",
-        Attack = 1320000,
-        Health = 8600000,
+    ["ElfMage"] = {
+        Name = "Elf Mage",
+        Attack = 98000,
+        Health = 89000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Magic World",
+        Rarity = "Epic",
+        ArtFitMode = "Crop",
+        ArtAssetId = "rbxassetid://126141819707798",
+        AbilityId = "AttackDamageBoost",
+        AbilityCooldownSeconds = 15
+    },
+    ["power"] = {
+        Name = "Boawer",
+        Attack = 98000,
+        Health = 89000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Magic World",
+        Rarity = "Epic",
+        ArtFitMode = "Crop",
+        ArtAssetId = "rbxassetid://139360187158907",
+        AbilityId = "AttackDamageBoost",
+        AbilityCooldownSeconds = 15
+    },
+    ["cc"] = {
+        Name = "Kiki",
+        Attack = 98000,
+        Health = 89000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Magic World",
+        Rarity = "Epic",
+        ArtFitMode = "Crop",
+        ArtAssetId = "rbxassetid://108032115040659",
+        AbilityId = "AttackDamageBoost",
+        AbilityCooldownSeconds = 15
+    },
+    ["esdeath"] = {
+        Name = "Esla",
+        Attack = 98000000,
+        Health = 890000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Magic World",
+        Rarity = "Legendary",
+        ArtFitMode = "Crop",
+        ArtAssetId = "rbxassetid://90045181883052",
+        AbilityId = "AttackDamageBoost",
+        AbilityCooldownSeconds = 15
+    },
+    ["aqua"] = {
+        Name = "Water Princess",
+        Attack = 13200,
+        Health = 86000,
         AttackIntervalSeconds = 5.0,
         Category = "Konosuba",
         Rarity = "Rare",
         ArtFitMode = "Crop",
-        ArtAssetId = "rbxassetid://108556016000847",
+        ArtAssetId = "rbxassetid://122803861262986",
         AbilityId = "HealAlly",
         AbilityCooldownSeconds = 9
     },
@@ -447,13 +1229,10 @@ local cardData = {
         ArtAssetId = "rbxassetid://130664963456992",
         AbilityId = "IceAge",
         AbilityCooldownSeconds = 20,
-        -- IceAge uses IceAnimation1 and IceAnimation2 sprite sequence
         IsNpcCard = true
     }
 }
 
--- Special video cards are intentionally defined outside the decal-driven card list.
--- They are merged into the runtime database and rendered with VideoFrame.
 local specialVideoCardData = {
     ["AstraEclipse"] = {
         Name = "Astra Eclipse",
@@ -469,12 +1248,29 @@ local specialVideoCardData = {
     },
 }
 
--- DEFAULT_CARD_TEMPLATE moved to top of file
-
-
-
-
 local cardDataReady = false
+
+local COMBAT_POWER_RARITY_MULTIPLIER = {
+    Common = 1,
+    Uncommon = 1.5,
+    Rare = 3,
+    Epic = 8,
+    Legendary = 25,
+    God = 100,
+    Transcendent = 500,
+}
+
+local function deriveDefaultHealth(attackValue)
+    local atk = math.max(1, math.floor(tonumber(attackValue) or DEFAULT_CARD_TEMPLATE.Attack))
+    return math.max(60, atk)
+end
+
+local function sanitizeHealth(value, attackValue)
+    if type(value) == "number" then
+        return math.max(1, math.floor(value))
+    end
+    return deriveDefaultHealth(attackValue)
+end
 
 local function sanitizeString(value, fallback)
     if type(value) == "string" and value ~= "" then
@@ -620,12 +1416,12 @@ local function autoRegisterCardArtCards()
                     Category = sanitizeString(categoryAttr, DEFAULT_CARD_TEMPLATE.Category),
                     Rarity = sanitizeString(rarityAttr, DEFAULT_CARD_TEMPLATE.Rarity),
                     ArtFitMode = artFitMode,
-					ArtAssetId = "",
-					VideoAssetId = sanitizeVideoAssetId(videoAssetIdAttr),
+                    ArtAssetId = "",
+                    VideoAssetId = sanitizeVideoAssetId(videoAssetIdAttr),
                     HoverVideoAssetId = "",
                     AbilityId = DEFAULT_CARD_TEMPLATE.AbilityId,
                     AbilityCooldownSeconds = DEFAULT_CARD_TEMPLATE.AbilityCooldownSeconds,
-					IsSpecialVideoCard = false,
+                    IsSpecialVideoCard = false,
                 }
             end
         end
@@ -653,40 +1449,57 @@ local function normalizeAllCardDataEntries()
 end
 
 local function registerSpecialVideoCards()
-	for cardId, data in pairs(specialVideoCardData) do
-		cardData[cardId] = {
-			Name = sanitizeString(data.Name, prettifyCardId(cardId)),
-			Attack = sanitizeAttack(data.Attack),
+    for cardId, data in pairs(specialVideoCardData) do
+        cardData[cardId] = {
+            Name = sanitizeString(data.Name, prettifyCardId(cardId)),
+            Attack = sanitizeAttack(data.Attack),
             Health = sanitizeHealth(data.Health, data.Attack),
-			AttackIntervalSeconds = sanitizeAttackIntervalSeconds(data.AttackIntervalSeconds, data.Rarity),
-			Category = sanitizeString(data.Category, DEFAULT_CARD_TEMPLATE.Category),
-			Rarity = sanitizeString(data.Rarity, "Transcendent"),
-			ArtFitMode = sanitizeArtFitMode(data.ArtFitMode),
+            AttackIntervalSeconds = sanitizeAttackIntervalSeconds(data.AttackIntervalSeconds, data.Rarity),
+            Category = sanitizeString(data.Category, DEFAULT_CARD_TEMPLATE.Category),
+            Rarity = sanitizeString(data.Rarity, "Transcendent"),
+            ArtFitMode = sanitizeArtFitMode(data.ArtFitMode),
             ArtAssetId = sanitizeImageAssetId(data.ArtAssetId),
-			VideoAssetId = sanitizeVideoAssetId(data.VideoAssetId),
+            VideoAssetId = sanitizeVideoAssetId(data.VideoAssetId),
             HoverVideoAssetId = sanitizeVideoAssetId(data.HoverVideoAssetId),
             AbilityId = sanitizeAbilityId(data.AbilityId),
             AbilityCooldownSeconds = sanitizeAbilityCooldownSeconds(data.AbilityCooldownSeconds),
             IsSpecialVideoCard = true
-		}
-	end
+        }
+    end
 end
 
 local function ensureCardDataReady()
     if cardDataReady then
         return
     end
-	normalizeAllCardDataEntries()
-	registerSpecialVideoCards()
+    normalizeAllCardDataEntries()
+    registerSpecialVideoCards()
     autoRegisterCardArtCards()
     cardDataReady = true
 end
+
+local FOIL_CARD_SUFFIX = "::Foil"       -- Canonical foil/border variant format
+local BORDERED_CARD_SUFFIX = "::Bordered"  -- Legacy alias; parsed then normalized to ::Foil
+
+-- Explicit tier keys that may appear after ::Bordered in a card reference.
+-- Why: encoding the tier in the ref (e.g. "BeliodusX::Bordered::Gold") keeps card
+-- rarity (Common…God) and border-tier rarity (Silver…Rainbow) fully independent —
+-- no coupling to a player's FoilChance stat is needed to identify the visual tier.
+local VALID_FOIL_TIERS = {
+        Silver = true, Gold = true, Diamond = true, Rainbow = true,
+        Corrupted = true,  -- Gallery-only concept tier
+}
 
 local function resolveCardId(cardRef)
     if type(cardRef) ~= "string" or cardRef == "" then
         return nil
     end
 
+    -- Strip any ::Bordered or ::Foil (legacy) suffix including optional ::Tier so all
+    -- ref formats resolve to the same base card:
+    --   "BeliodusX", "BeliodusX::Bordered", "BeliodusX::Bordered::Gold", "BeliodusX::Foil::Silver"
+    cardRef = string.gsub(cardRef, BORDERED_CARD_SUFFIX .. ".*$", "")
+    cardRef = string.gsub(cardRef, FOIL_CARD_SUFFIX .. ".*$", "")
     cardRef = string.gsub(cardRef, "^%s*(.-)%s*$", "%1")
     if cardRef == "" then
         return nil
@@ -720,6 +1533,8 @@ local function resolveCardIdStrict(cardRef)
         return nil
     end
 
+    cardRef = string.gsub(cardRef, BORDERED_CARD_SUFFIX .. ".*$", "")
+    cardRef = string.gsub(cardRef, FOIL_CARD_SUFFIX .. ".*$", "")
     cardRef = string.gsub(cardRef, "^%s*(.-)%s*$", "%1")
     if cardRef == "" then
         return nil
@@ -775,36 +1590,186 @@ local function formatCompactNumber(value)
     return string.format("%.1f%s", roundedToTenth, suffix)
 end
 
--- Function to get card data
-function CardDatabase.GetCardData(cardId)
+function CardDatabase.ParseCardReference(cardRef)
     ensureCardDataReady()
-    local resolvedId = resolveCardId(cardId)
+    if type(cardRef) ~= "string" or cardRef == "" then
+        return nil
+    end
+
+    local trimmedRef = string.gsub(cardRef, "^%s*(.-)%s*$", "%1")
+    if trimmedRef == "" then
+        return nil
+    end
+
+    -- ── Canonical tier-encoded foil: "CardId::Foil::Tier" ─────────────────────
+    local foilBaseRef, foilRawTier = string.match(trimmedRef, "^(.+)" .. FOIL_CARD_SUFFIX .. "::([%w]+)$")
+    if foilBaseRef and foilRawTier then
+        local resolvedTier = nil
+        for tier in pairs(VALID_FOIL_TIERS) do
+            if string.lower(tier) == string.lower(foilRawTier) then
+                resolvedTier = tier
+                break
+            end
+        end
+        if resolvedTier then
+            local resolvedId = resolveCardIdStrict(foilBaseRef)
+            if resolvedId then
+                return {
+                    CardId     = resolvedId,
+                    BaseCardId = resolvedId,
+                    CardRef    = resolvedId .. FOIL_CARD_SUFFIX .. "::" .. resolvedTier,
+                    IsBordered = true,
+                    BorderTier = resolvedTier,
+                }
+            end
+        end
+    end
+
+    -- ── Canonical plain foil: "CardId::Foil" ──────────────────────────────────
+    local isPlainFoil = string.match(trimmedRef, FOIL_CARD_SUFFIX .. "$") ~= nil
+    if isPlainFoil then
+        local plainBase = string.gsub(trimmedRef, FOIL_CARD_SUFFIX .. "$", "")
+        local resolvedId = resolveCardIdStrict(plainBase)
+        if resolvedId then
+            return {
+                CardId     = resolvedId,
+                BaseCardId = resolvedId,
+                CardRef    = resolvedId .. FOIL_CARD_SUFFIX,
+                IsBordered = true,
+                BorderTier = nil,
+            }
+        end
+    end
+
+    -- ── Legacy tier-encoded bordered: "CardId::Bordered::Tier" ─────────────────
+    -- Why: this format keeps card rarity (Common/…/God) and border-tier rarity
+    -- (Silver/Gold/Diamond/Rainbow) fully independent.  No player stat is needed
+    -- to know which foil palette to render.
+    local baseRef, rawTier = string.match(trimmedRef, "^(.+)" .. BORDERED_CARD_SUFFIX .. "::([%w]+)$")
+    if baseRef and rawTier then
+        -- Normalise tier key casing so "gold" → "Gold" etc. Normalize to ::Foil::.
+        local resolvedTier = nil
+        for tier in pairs(VALID_FOIL_TIERS) do
+            if string.lower(tier) == string.lower(rawTier) then
+                resolvedTier = tier
+                break
+            end
+        end
+
+        if resolvedTier then
+            local resolvedId = resolveCardIdStrict(baseRef)
+            if resolvedId then
+                return {
+                    CardId     = resolvedId,
+                    BaseCardId = resolvedId,
+                    CardRef    = resolvedId .. BORDERED_CARD_SUFFIX .. "::" .. resolvedTier,
+                    IsBordered = true,
+                    BorderTier = resolvedTier,
+                }
+            end
+        end
+        -- Unknown tier suffix — fall through to plain-bordered check below.
+    end
+
+    -- ── Plain bordered: "CardId::Bordered" ───────────────────────────────────
+    -- Why: backward-compatible with existing rolled bordered cards that were
+    -- stored before the tier-encoding system was introduced.  Their display tier
+    -- is resolved at render-time from the player's FoilChance stat.
+    local isBordered = string.match(trimmedRef, BORDERED_CARD_SUFFIX .. "$") ~= nil
+    local plainBase  = isBordered and string.gsub(trimmedRef, BORDERED_CARD_SUFFIX .. "$", "") or trimmedRef
+    local resolvedId = resolveCardIdStrict(plainBase)
     if not resolvedId then
         return nil
     end
-    return cardData[resolvedId]
+
+    return {
+        CardId     = resolvedId,
+        BaseCardId = resolvedId,
+        CardRef    = isBordered and (resolvedId .. FOIL_CARD_SUFFIX) or resolvedId,
+        IsBordered = isBordered,
+        BorderTier = nil,  -- tier is stat-driven; determined at render-time
+    }
 end
 
-function CardDatabase.ResolveCardId(cardRef)
-    ensureCardDataReady()
-    return resolveCardId(cardRef)
+function CardDatabase.NormalizeCardReference(cardRef)
+    local parsed = CardDatabase.ParseCardReference(cardRef)
+    return parsed and parsed.CardRef or nil
 end
 
-function CardDatabase.ResolveCardIdStrict(cardRef)
+function CardDatabase.GetCardReference(cardId, isBordered)
     ensureCardDataReady()
-    return resolveCardIdStrict(cardRef)
+    local resolvedId = resolveCardIdStrict(cardId)
+    if not resolvedId then
+        return nil
+    end
+    return isBordered and (resolvedId .. BORDERED_CARD_SUFFIX) or resolvedId
+end
+
+function CardDatabase.GetCardData(cardRef)
+    ensureCardDataReady()
+    local parsed = CardDatabase.ParseCardReference(cardRef)
+    local resolvedId = parsed and parsed.BaseCardId or resolveCardIdStrict(cardRef)
+    if not resolvedId then
+        return nil
+    end
+    local data = cardData[resolvedId]
+    if not data then
+        return nil
+    end
+    return data
+end
+
+function CardDatabase.IsBorderedCard(cardRef)
+    local parsed = CardDatabase.ParseCardReference(cardRef)
+    return parsed ~= nil and parsed.IsBordered == true
 end
 
 function CardDatabase.FormatAttack(value)
     return formatCompactNumber(value)
 end
 
--- Function to get default starter inventory
-function CardDatabase.GetDefaultInventory()
-    return {"Goku6Star", "Ichigo", "Luffy", "Naruto"}
+function CardDatabase.GetFoilStatMultipliers(cardRef, foilChancePoints)
+    local parsed = CardDatabase.ParseCardReference(cardRef)
+    if not (parsed and parsed.IsBordered) then
+        return { AtkMultiplier = 1, HpMultiplier = 1, Tier = nil }
+    end
+
+    -- Why: if the card ref encodes an explicit tier (e.g. ::Foil::Gold), use
+    -- that directly.  Fallback to the stat-driven resolver for legacy refs.
+    if parsed.BorderTier then
+        local tierName    = parsed.BorderTier
+        local multipliers = BalanceConfig.FOIL_TIER_MULTIPLIERS[tierName]
+            or BalanceConfig.FOIL_TIER_MULTIPLIERS[BalanceConfig.DEFAULT_FOIL_TIER]
+            or { AtkMultiplier = 1, HpMultiplier = 1 }
+        return {
+            AtkMultiplier = math.max(1, tonumber(multipliers.AtkMultiplier) or 1),
+            HpMultiplier  = math.max(1, tonumber(multipliers.HpMultiplier)  or 1),
+            Tier          = tierName,
+        }
+    end
+
+    return BalanceConfig.GetFoilMultipliers(foilChancePoints)
 end
 
+function CardDatabase.GetCombatPower(cardId, foilChancePoints)
+    ensureCardDataReady()
+    local parsed = CardDatabase.ParseCardReference(cardId)
+    local resolvedId = parsed and parsed.BaseCardId or resolveCardId(cardId)
+    local data = resolvedId and cardData[resolvedId] or nil
+    if not data then
+        return 0
+    end
+    local multipliers = CardDatabase.GetFoilStatMultipliers(cardId, foilChancePoints)
+    local atk = math.max(1, math.floor((tonumber(data.Attack) or 1) * (tonumber(multipliers.AtkMultiplier) or 1)))
+    local hp = math.max(1, math.floor((tonumber(data.Health) or 1) * (tonumber(multipliers.HpMultiplier) or 1)))
+    local rarity = data.Rarity or "Common"
+    local multiplier = COMBAT_POWER_RARITY_MULTIPLIER[rarity] or 1
+    return math.floor((atk + hp * 0.3) * multiplier)
+end
 
+function CardDatabase.FormatCombatPower(cardId, foilChancePoints)
+    return formatCompactNumber(CardDatabase.GetCombatPower(cardId, foilChancePoints))
+end
 -- Function to get all available card IDs (unordered)
 function CardDatabase.GetAllCardIds()
     ensureCardDataReady()
@@ -919,13 +1884,13 @@ function CardDatabase.RegisterCard(cardId, data)
         AttackIntervalSeconds = sanitizeAttackIntervalSeconds(data.AttackIntervalSeconds, data.Rarity),
         Category = data.Category,
         Rarity = data.Rarity or "Common",
-		ArtFitMode = sanitizeArtFitMode(data.ArtFitMode),
+        ArtFitMode = sanitizeArtFitMode(data.ArtFitMode),
         ArtAssetId = sanitizeImageAssetId(data.ArtAssetId),
-		VideoAssetId = sanitizeVideoAssetId(data.VideoAssetId),
+        VideoAssetId = sanitizeVideoAssetId(data.VideoAssetId),
         HoverVideoAssetId = sanitizeVideoAssetId(data.HoverVideoAssetId),
         AbilityId = sanitizeAbilityId(data.AbilityId),
         AbilityCooldownSeconds = sanitizeAbilityCooldownSeconds(data.AbilityCooldownSeconds),
-		IsSpecialVideoCard = data.IsSpecialVideoCard == true,
+        IsSpecialVideoCard = data.IsSpecialVideoCard == true,
     }
     cardDataReady = true
     return true, "Registered"

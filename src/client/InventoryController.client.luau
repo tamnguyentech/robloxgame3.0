@@ -1,25 +1,17 @@
 
--- Returns the cumulative number of rolls needed to reach the current level using capped linear/exponential formula
-local function getCumulativeRollsToLevel(level)
-	local total = 0
-	local base = 10
-	local growth = 1.15 -- mild exponential
-	local cap = 100 -- max rolls required per level
-	for i = 1, level do
-		local req = math.floor(base * (growth ^ (i-1)))
-		if req > cap then
-			req = cap
-		end
-		total = total + req
-	end
-	return total
-end
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ResetAllRollsEvent = ReplicatedStorage:FindFirstChild("ResetAllRollsEvent")
 if not ResetAllRollsEvent then
 	ResetAllRollsEvent = Instance.new("RemoteEvent")
 	ResetAllRollsEvent.Name = "ResetAllRollsEvent"
 	ResetAllRollsEvent.Parent = ReplicatedStorage
+end
+local ClientSettingsChangedEvent = ReplicatedStorage:FindFirstChild("ClientSettingsChangedEvent")
+if not (ClientSettingsChangedEvent and ClientSettingsChangedEvent:IsA("BindableEvent")) then
+	if ClientSettingsChangedEvent then ClientSettingsChangedEvent:Destroy() end
+	ClientSettingsChangedEvent = Instance.new("BindableEvent")
+	ClientSettingsChangedEvent.Name = "ClientSettingsChangedEvent"
+	ClientSettingsChangedEvent.Parent = ReplicatedStorage
 end
 
 -- selene: allow(unused_variable)
@@ -31,8 +23,42 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Player = game.Players.LocalPlayer
-local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
-local RarityConfig = require(script.Parent:WaitForChild("RarityConfig"))
+local CardDatabase      = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local BalanceConfig     = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BalanceConfig"))
+local EconomyCatalog    = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("EconomyCatalog"))
+local CardVisualResolver = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardVisualResolver"))
+local RarityConfig      = require(script.Parent:WaitForChild("RarityConfig"))
+local ClientStateManager = require(script.Parent.core:WaitForChild("ClientStateManager"))
+local DeviceContext = require(script.Parent.core:WaitForChild("DeviceContext"))
+local Spring            = require(script.Parent:WaitForChild("Spring"))
+local SettingsUIController = require(script.Parent.ui.controllers.SettingsUIController)
+
+local AddCardToInventory -- forward declaration; defined below
+
+-- ── Shared spring driver for card hover-zoom ──────────────────────────────────
+-- Why: one Heartbeat for all active card springs is cheaper than N connections.
+-- Each card registers its Spring + UIScale reference here on creation.
+local activeScaleSprings = {}  -- { [Spring] = UIScale }
+local springDriverConn   = nil
+
+local function ensureSpringDriver()
+	if springDriverConn then return end
+	springDriverConn = RunService.Heartbeat:Connect(function(dt)
+		local anyActive = false
+		for spring, scaleObj in pairs(activeScaleSprings) do
+			if scaleObj and scaleObj.Parent then
+				scaleObj.Scale = spring:step(dt)
+				anyActive = true
+			else
+				activeScaleSprings[spring] = nil
+			end
+		end
+		if not anyActive and springDriverConn then
+			springDriverConn:Disconnect()
+			springDriverConn = nil
+		end
+	end)
+end
 
 local artFolder = ReplicatedStorage:WaitForChild("CardArt")
 local mainUI = Player.PlayerGui:WaitForChild("MainUI")  -- Adjust "MainUI" to your ScreenGui name
@@ -117,6 +143,9 @@ local getOrCreateBindableEvent
 local getCurrencyValueObject
 local getAutoRollOwnedValueObject
 local findCardArtDecal
+-- Forward-declared so the sell confirm handler (set up before line ~1400) can
+-- reference it; the actual require happens after helper functions are defined.
+local EconomyClient
 
 local CARD_NAME_FONT = Enum.Font.Fantasy
 local CARD_STAT_FONT = Enum.Font.Arcade
@@ -141,19 +170,31 @@ end
 local tabsFolder = script.Parent:WaitForChild("tabs")
 local uiFolder = script.Parent:WaitForChild("ui")
 local TabController = require(tabsFolder:WaitForChild("TabController"))
-local CardsTab = require(tabsFolder:WaitForChild("CardsTab"))
 local ItemsTab = require(tabsFolder:WaitForChild("ItemsTab"))
 local BoosterPacksTab = require(tabsFolder:WaitForChild("BoosterPacksTab"))
 local HoverPreview = require(uiFolder:WaitForChild("HoverPreview"))
+local HoverPreviewBridge = require(uiFolder:WaitForChild("HoverPreviewBridge"))
+-- Why: HoloFoilController owns all holographic shimmer tween logic; importing here
+-- avoids duplicating UIGradient animation code inside InventoryController.
+local HoloFoilController = require(uiFolder:WaitForChild("effects"):WaitForChild("HoloFoilController"))
+local ParallaxNameLabel   = require(uiFolder:WaitForChild("ParallaxNameLabel"))
+local RainbowBorderStroke = require(uiFolder:WaitForChild("effects"):WaitForChild("RainbowBorderStroke"))
 local BoosterPackSystem = require(script.Parent:WaitForChild("BoosterPackSystem"))
 
-local tabController = TabController.Init(mainUI, inventoryFrame, {
-	CardsTab,
+-- Backpack tab bar anchor (positioned by RPGHUDController when Backpack modal opens)
+local backpackContentAnchor = Instance.new("Frame")
+backpackContentAnchor.Name = "BackpackContentAnchor"
+backpackContentAnchor.Size = UDim2.fromOffset(700, 500)
+backpackContentAnchor.Position = UDim2.fromOffset(150, 90)
+backpackContentAnchor.AnchorPoint = Vector2.new(0, 0)
+backpackContentAnchor.BackgroundTransparency = 1
+backpackContentAnchor.Parent = mainUI
+
+local tabController = TabController.Init(mainUI, backpackContentAnchor, {
 	ItemsTab,
 	BoosterPacksTab,
 })
--- Remove auto-activation so deck UI doesn't show on join
--- tabController.SetActive("Cards")
+tabController.SetActive("Items")
 
 local function getPreviewRarityColor(rarity)
 	return RarityConfig.GetPreviewRarityColor(rarity)
@@ -171,6 +212,9 @@ local hoverPreview = HoverPreview.Init(mainUI, artFolder, {
 	stripTransparency = 0.2,
 	stripScrollSpeed = 0.6,
 })
+-- Publish the initialized API so other client modules (e.g. ShopUIController)
+-- can show the shared preview panel without a circular require dependency.
+HoverPreviewBridge.set(hoverPreview)
 
 local function buildBorderGradient(baseColor)
 	return RarityConfig.BuildBorderGradient(baseColor)
@@ -360,13 +404,79 @@ local function applyAnimatedCardBorder(card, rarity, cardId)
 	end
 end
 
+local function parseCardReference(cardRef)
+	return CardDatabase.ParseCardReference(cardRef)
+end
+
+local function normalizeCardReference(cardRef)
+	local parsed = parseCardReference(cardRef)
+	return parsed and parsed.CardRef or nil
+end
+
+local function getBaseCardId(cardRef)
+	local parsed = parseCardReference(cardRef)
+	return parsed and parsed.BaseCardId or nil
+end
+
+-- Why: Returns a HoloFoilController so CreateCard can toggle shimmer intensity
+-- on mouse-enter/leave without re-querying the child hierarchy each frame.
+-- tier: "Silver" | "Gold" | "Diamond" | "Rainbow" — explicit from the card ref,
+-- or derived from the player's FoilChance stat as a fallback.
+local function applyBorderedVariantVisual(card, tier)
+	-- Guard against double-application; HoloFoilMask is the presence sentinel.
+	if not card or card:FindFirstChild("HoloFoilMask") then
+		return nil
+	end
+
+	-- Use CardVisualResolver so stroke colours are always consistent with what the
+	-- HoverPreview and battle surfaces show for the same tier.
+	local style = CardVisualResolver.resolveFromTier(tier or "Silver")
+
+	local foil = HoloFoilController.Attach(card, style.foilOpts)
+
+	local borderStroke = card:FindFirstChild("CardBorderStroke")
+	if borderStroke and borderStroke:IsA("UIStroke") then
+		local tierKey = tier or "Silver"
+		if tierKey == "Rainbow" then
+			-- Rainbow tier: rotating spectrum on the outline (not solid pink).
+			local cardGrad = borderStroke:FindFirstChild("CardBorderGradient")
+			if cardGrad then
+				cardGrad:Destroy()
+			end
+			RainbowBorderStroke.attach(borderStroke)
+		else
+			RainbowBorderStroke.detach(borderStroke)
+			borderStroke.Color = style.strokeColor
+		end
+	end
+
+	local glowFrame = card:FindFirstChild("CardBorderGlow")
+	local glowStroke = glowFrame and glowFrame:FindFirstChild("GlowStroke")
+	if glowStroke and glowStroke:IsA("UIStroke") then
+		glowStroke.Color = BalanceConfig.GetFoilVisuals().GlowColor
+	end
+
+	return foil
+end
+
 local function showHoverPreview(cardId)
-	local data = CardDatabase.GetCardData(cardId)
+	local parsed = parseCardReference(cardId)
+	local cardRef = parsed and parsed.CardRef or cardId
+	local baseCardId = parsed and parsed.BaseCardId or cardId
+	local data = CardDatabase.GetCardData(baseCardId)
 	if not data then
 		return
 	end
-	local rarityColor = getPreviewRarityColor(data.Rarity)
-	hoverPreview.Show(cardId, data, rarityColor)
+	-- Use CardVisualResolver so the hover preview stroke colour always matches
+	-- the foil tier shown on the small card (single source of truth).
+	local borderChancePoints = ClientStateManager.getStats and
+		(ClientStateManager.getStats().FoilChance or ClientStateManager.getStats().BorderChance or 0) or 0
+	local style = CardVisualResolver.resolve(
+		cardRef,
+		borderChancePoints,
+		getPreviewRarityColor(data.Rarity)
+	)
+	hoverPreview.Show(cardRef, data, style.strokeColor)
 end
 
 local function hideHoverPreview(delaySeconds)
@@ -480,14 +590,22 @@ end
 setupDeckBackgroundSync(inventoryFrame, "InventoryDeckBackground", INVENTORY_BG_IMAGE, Color3.fromRGB(74, 130, 225))
 setupDeckBackgroundSync(combatDeckFrame, "CombatDeckBackground", COMBAT_BG_IMAGE, Color3.fromRGB(225, 88, 88))
 
-local function SyncTabsWithDeckToggle()
-	local isOpen = inventoryFrame.Visible or combatDeckFrame.Visible
+local function SyncTabsWithBackpackToggle()
+	local itemsFrame = mainUI:FindFirstChild("ItemsFrame")
+	local boosterPacksFrame = mainUI:FindFirstChild("BoosterPacksFrame")
+	local isOpen = (itemsFrame and itemsFrame.Visible) or (boosterPacksFrame and boosterPacksFrame.Visible)
 	tabController.SetVisible(isOpen)
 end
 
-inventoryFrame:GetPropertyChangedSignal("Visible"):Connect(SyncTabsWithDeckToggle)
-combatDeckFrame:GetPropertyChangedSignal("Visible"):Connect(SyncTabsWithDeckToggle)
-SyncTabsWithDeckToggle()
+local itemsFrameRef = mainUI:FindFirstChild("ItemsFrame")
+local boosterPacksFrameRef = mainUI:FindFirstChild("BoosterPacksFrame")
+if itemsFrameRef then
+	itemsFrameRef:GetPropertyChangedSignal("Visible"):Connect(SyncTabsWithBackpackToggle)
+end
+if boosterPacksFrameRef then
+	boosterPacksFrameRef:GetPropertyChangedSignal("Visible"):Connect(SyncTabsWithBackpackToggle)
+end
+task.defer(SyncTabsWithBackpackToggle)
 
 local function SetCardStackVisual(card, parentFrame)
 	if not card or not card:FindFirstChild("NumberLabel") then
@@ -496,9 +614,11 @@ local function SetCardStackVisual(card, parentFrame)
 	card.NumberLabel.Visible = (parentFrame == inventoryFrame)
 end
 
+-- For inventory/backpack: prefer Stretch over Fit so card art fills the frame
+-- and avoids white gaps when aspect ratios differ.
 local function resolveArtScaleType(cardId, data)
 	if type(cardId) ~= "string" or cardId == "" then
-		return Enum.ScaleType.Fit
+		return Enum.ScaleType.Stretch
 	end
 
 	local cardData = data or CardDatabase.GetCardData(cardId)
@@ -509,7 +629,8 @@ local function resolveArtScaleType(cardId, data)
 		return Enum.ScaleType.Crop
 	end
 	if cardData and cardData.ArtFitMode == "Fit" then
-		return Enum.ScaleType.Fit
+		-- Override Fit to Stretch for inventory view: fill frame, no white gaps
+		return Enum.ScaleType.Stretch
 	end
 
 	local imageObj = findCardArtDecal(cardId)
@@ -523,7 +644,7 @@ local function resolveArtScaleType(cardId, data)
 			if normalized == "crop" then
 				return Enum.ScaleType.Crop
 			end
-			return Enum.ScaleType.Fit
+			return Enum.ScaleType.Stretch  -- Fit -> Stretch for clean fill
 		end
 		if imageObj:GetAttribute("ForceStretch") == true then
 			return Enum.ScaleType.Stretch
@@ -533,7 +654,7 @@ local function resolveArtScaleType(cardId, data)
 		end
 	end
 
-	return Enum.ScaleType.Fit
+	return Enum.ScaleType.Stretch
 end
 
 local function applyCardArtScale(card, cardId, data)
@@ -632,6 +753,7 @@ local function applyCardArtVisual(card, cardId, data)
 		return
 	end
 
+	local baseCardId = getBaseCardId(cardId) or cardId
 	local artLabel = card.ArtLabel
 	local videoAssetId = data and data.VideoAssetId
 	if type(videoAssetId) == "string" and videoAssetId ~= "" and videoAssetId ~= "rbxassetid://0" then
@@ -664,13 +786,13 @@ local function applyCardArtVisual(card, cardId, data)
 
 	artLabel.Visible = true
 	artLabel.Image = ""
-	local imageObj = findCardArtDecal(cardId)
+	local imageObj = findCardArtDecal(baseCardId)
 	if imageObj then
 		artLabel.Image = imageObj.Texture
 	elseif data and type(data.ArtAssetId) == "string" and data.ArtAssetId ~= "" and data.ArtAssetId ~= "rbxassetid://0" then
 		artLabel.Image = data.ArtAssetId
 	end
-	applyCardArtScale(card, cardId, data)
+	applyCardArtScale(card, baseCardId, data)
 end
 
 local function getCombatSlotName(slotIndex)
@@ -787,7 +909,7 @@ local function getCardIdFromGuiCard(guiCard)
 	if type(candidateId) ~= "string" or candidateId == "" then
 		return nil
 	end
-	return CardDatabase.ResolveCardIdStrict(candidateId)
+	return normalizeCardReference(candidateId)
 end
 
 local function choosePrimaryCombatSlotCard(cards)
@@ -856,10 +978,31 @@ local function enforceCombatDeckIntegrity()
 	return changed
 end
 
+local deckDirtySinceLastSave = false
+local clientSettingsDirtySinceLastSave = false
+-- Block saves briefly after RequestLoad (e.g. after sell) so we don't send stale
+-- inventory before the snapshot arrives. Prevents "Card ownership inflation" rejects.
+local saveBlockedUntil = 0
+
 local function SaveDeckState()
 	if not hasLoadedSaveData then
 		pendingSaveAfterLoad = true
 		return
+	end
+	if os.clock() < saveBlockedUntil then
+		return -- Suppress stale save during post-RequestLoad window
+	end
+
+	ensureCombatSlots()
+	local hasAnySlot = false
+	for i = 1, COMBAT_MAX_UNIQUE do
+		if getCombatSlot(i) then
+			hasAnySlot = true
+			break
+		end
+	end
+	if not hasAnySlot then
+		return -- Slots not ready; do not send empty combat
 	end
 
 	enforceCombatDeckIntegrity()
@@ -893,47 +1036,66 @@ local function SaveDeckState()
 		end
 	end
 
+	local settingsState = SettingsUIController.GetState()
 	local payload = {
 		inventory = invList,
 		combat = deckList,
 		rollCount = currentRollCount,
 		level = currentLevel,
 		coins = getCurrencyValueObject().Value,
+		clientSettings = {
+			ShowIdleRollCardNotifications = settingsState and settingsState.ShowIdleRollCardNotifications,
+		},
 	}
 	saveEvent:FireServer(payload)
+	deckDirtySinceLastSave = false
+	clientSettingsDirtySinceLastSave = false
 end
 
+-- Save deck when Deck modal closes (combat deck was visible)
+local wasCombatVisible = false
+combatDeckFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+	local nowVisible = combatDeckFrame.Visible
+	if wasCombatVisible and not nowVisible then
+		deckDirtySinceLastSave = true
+		task.defer(SaveDeckState)
+	end
+	wasCombatVisible = nowVisible
+end)
+
+ClientSettingsChangedEvent.Event:Connect(function()
+	clientSettingsDirtySinceLastSave = true
+end)
+
+-- Periodic save when deck or client settings are dirty (backup for disconnect/flake)
+task.spawn(function()
+	while true do
+		task.wait(2)
+		if (deckDirtySinceLastSave or clientSettingsDirtySinceLastSave) and hasLoadedSaveData then
+			task.defer(SaveDeckState)
+		end
+	end
+end)
+
 local function SetProgress(rollCount, level)
-	-- Set level first so roll cap is correct
+	-- Server is authoritative on both rollCount and level.
+	-- Store the raw cumulative rollCount; level is derived server-side by the same
+	-- floor(rollCount / ROLLS_PER_LEVEL) + 1 formula so we trust it directly.
 	if type(level) == "number" then
 		currentLevel = math.max(1, math.floor(level))
 	end
 	if type(rollCount) == "number" then
 		currentRollCount = math.max(0, math.floor(rollCount))
-		while true do
-			local rollsNeeded = getCumulativeRollsToLevel(currentLevel)
-			if currentRollCount >= rollsNeeded then
-				currentRollCount = currentRollCount - rollsNeeded
-				currentLevel = currentLevel + 1
-			else
-				break
-			end
+		-- Derive level from rollCount if level was not supplied, using the same
+		-- flat formula the server uses so client and server always agree.
+		if type(level) ~= "number" then
+			currentLevel = math.floor(currentRollCount / BalanceConfig.ROLLS_PER_LEVEL) + 1
 		end
 	end
 	if updateProgressStatsDisplay then
 		updateProgressStatsDisplay()
 	end
 end
-
-local sellValueByRarity = {
-	Common = 0,
-	Uncommon = 1,
-	Rare = 2,
-	Epic = 3,
-	Legendary = 4,
-	God = 5,
-	Transcendent = 10,
-}
 
 getOrCreateIntValue = function(name, defaultValue)
 	local valueObj = ReplicatedStorage:FindFirstChild(name)
@@ -998,13 +1160,13 @@ local sellModeEnabledValue = getOrCreateBoolValue("ShopSellModeEnabled", false)
 local selectedSellCountValue = getOrCreateIntValue("ShopSellSelectedCount", 0)
 local selectedSellCoinsValue = getOrCreateIntValue("ShopSellSelectedCoins", 0)
 local confirmSellSelectionEvent = getOrCreateBindableEvent("ConfirmSellSelectionEvent")
+local inventoryRebuiltEvent = getOrCreateBindableEvent("InventoryRebuiltEvent")
 
 local selectedSellCountByCard = {}
 
 local function getCardSellValue(cardId)
-	local data = CardDatabase.GetCardData(cardId)
-	local rarity = (data and data.Rarity) or "Common"
-	return sellValueByRarity[rarity] or 0
+	local baseCardId = getBaseCardId(cardId) or cardId
+	return math.max(0, math.floor(EconomyCatalog.GetCardSellValue(baseCardId) or 0))
 end
 
 local function applySellSelectionVisual(card, selectedCount)
@@ -1077,8 +1239,9 @@ local function refreshSellSelectionTotals()
 			local clamped = math.max(0, math.min(count, stackCount))
 			selectedSellCountByCard[card] = clamped
 			applySellSelectionVisual(card, clamped)
+			local cardId = getCardIdFromGuiCard(card) or card.Name
 			totalCount += clamped
-			totalCoins += clamped * getCardSellValue(card.Name)
+			totalCoins += clamped * getCardSellValue(cardId)
 		end
 	end
 
@@ -1109,98 +1272,465 @@ confirmSellSelectionEvent.Event:Connect(function()
 	if not sellModeEnabledValue.Value then
 		return
 	end
+	if not EconomyClient then
+		warn("[Sell] EconomyClient not yet loaded; try again in a moment.")
+		return
+	end
 
-	local gainedCoins = 0
-	local soldAny = false
-	for card, selectedCount in pairs(selectedSellCountByCard) do
-		if card and card.Parent == inventoryFrame and selectedCount > 0 then
-			local stackCount = tonumber(card.NumberLabel.Text) or 1
-			local sellCount = math.max(0, math.min(selectedCount, stackCount))
-			if sellCount > 0 then
-				soldAny = true
-				gainedCoins += sellCount * getCardSellValue(card.Name)
-				local remaining = stackCount - sellCount
-				if remaining > 0 then
-					card.NumberLabel.Text = tostring(remaining)
-				else
-					card:Destroy()
-				end
-			end
+	-- Build { [cardRef] = count } dict for the server request.
+	local selectionDict = {}
+	for card, count in pairs(selectedSellCountByCard) do
+		if card and card.Parent == inventoryFrame and count > 0 then
+			local cardId = getCardIdFromGuiCard(card) or card.Name
+			selectionDict[cardId] = (selectionDict[cardId] or 0) + count
 		end
 	end
 
-	if soldAny then
-		if gainedCoins > 0 then
-			local currency = getCurrencyValueObject()
-			currency.Value += gainedCoins
-		end
-		SaveDeckState()
+	if next(selectionDict) == nil then
+		return
 	end
 
+	-- Disable further sells mid-flight.
+	sellModeEnabledValue.Value = false
 	clearSellSelections()
+
+		task.spawn(function()
+			local ok, response = EconomyClient.SellCards(selectionDict)
+			if ok then
+				-- Block SaveDeckState for 2.5s so we don't send stale inventory
+				-- before the snapshot arrives (prevents merge rejection).
+				saveBlockedUntil = os.clock() + 2.5
+				-- Request a fresh data snapshot so the inventory grid rebuilds
+				-- from authoritative server state (same mechanism used at startup).
+				saveEvent:FireServer("RequestLoad")
+			else
+			warn("[Sell] Server rejected sell:", tostring(response))
+			-- Re-enable sell mode so the player can retry.
+			sellModeEnabledValue.Value = true
+		end
+	end)
 end)
 
-local function ensureStatsPill(container, name, titleText, accentColor)
-	local pill = container:FindFirstChild(name)
-	if not (pill and pill:IsA("Frame")) then
-		if pill then
-			pill:Destroy()
-		end
-		pill = Instance.new("Frame")
-		pill.Name = name
-		pill.Size = UDim2.new(0, 156, 1, 0)
-		pill.BackgroundColor3 = Color3.fromRGB(22, 24, 30)
-		pill.BackgroundTransparency = 0.16
-		pill.BorderSizePixel = 0
-		pill.Parent = container
+-- ── Inventory Sell-Mode Side Panel ────────────────────────────────────────────
+-- Compact vertical panel docked to the RIGHT of inventoryFrame so it never
+-- touches the tab bar above or the combat deck frame below.
+-- Why a sibling of inventoryFrame (not a child): inventoryFrame is a
+-- ClipsDescendants ScrollingFrame — its children cannot overflow its bounds.
 
-		local pillCorner = Instance.new("UICorner")
-		pillCorner.CornerRadius = UDim.new(0, 10)
-		pillCorner.Parent = pill
+local SELL_PANEL_W = 128
 
-		local pillStroke = Instance.new("UIStroke")
-		pillStroke.Thickness = 1
-		pillStroke.Transparency = 0.2
-		pillStroke.Color = accentColor
-		pillStroke.Parent = pill
-
-		local accent = Instance.new("Frame")
-		accent.Name = "Accent"
-		accent.Size = UDim2.new(0, 4, 1, -10)
-		accent.Position = UDim2.fromOffset(6, 5)
-		accent.BackgroundColor3 = accentColor
-		accent.BorderSizePixel = 0
-		accent.Parent = pill
-
-		local accentCorner = Instance.new("UICorner")
-		accentCorner.CornerRadius = UDim.new(0, 4)
-		accentCorner.Parent = accent
-
-		local title = Instance.new("TextLabel")
-		title.Name = "Title"
-		title.Size = UDim2.new(1, -20, 0, 16)
-		title.Position = UDim2.fromOffset(16, 6)
-		title.BackgroundTransparency = 1
-		title.TextXAlignment = Enum.TextXAlignment.Left
-		title.Text = titleText
-		title.TextColor3 = Color3.fromRGB(195, 202, 214)
-		title.Font = Enum.Font.GothamMedium
-		title.TextSize = 12
-		title.Parent = pill
-
-		local value = Instance.new("TextLabel")
-		value.Name = "Value"
-		value.Size = UDim2.new(1, -20, 0, 24)
-		value.Position = UDim2.fromOffset(16, 22)
-		value.BackgroundTransparency = 1
-		value.TextXAlignment = Enum.TextXAlignment.Left
-		value.Text = "0"
-		value.TextColor3 = Color3.fromRGB(244, 247, 255)
-		value.Font = Enum.Font.GothamBold
-		value.TextSize = 19
-		value.Parent = pill
+local function ensureSellToolbar()
+	local existing = mainUI:FindFirstChild("InventorySellPanel")
+	if existing and existing:IsA("Frame") then
+		return existing
 	end
-	return pill
+	if existing then
+		existing:Destroy()
+	end
+
+	-- Panel shell — height will be kept in sync with inventoryFrame via reposition
+	local panel = Instance.new("Frame")
+	panel.Name                  = "InventorySellPanel"
+	panel.AnchorPoint           = Vector2.new(0, 0)
+	panel.Size                  = UDim2.fromOffset(SELL_PANEL_W, 320)
+	panel.Position              = UDim2.fromOffset(0, 0)   -- overwritten by repositionPanel
+	panel.BackgroundColor3      = Color3.fromRGB(18, 20, 28)
+	panel.BackgroundTransparency = 0.08
+	panel.BorderSizePixel       = 0
+	panel.ZIndex                = 110
+	panel.Visible               = false
+	panel.Parent                = mainUI
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 12)
+	corner.Parent = panel
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness    = 1.5
+	stroke.Transparency = 0.45
+	stroke.Color        = Color3.fromRGB(70, 100, 160)
+	stroke.Parent       = panel
+
+	local bg = Instance.new("UIGradient")
+	bg.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0,   Color3.fromRGB(30, 34, 48)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(18, 20, 28)),
+		ColorSequenceKeypoint.new(1,   Color3.fromRGB(14, 16, 22)),
+	})
+	bg.Rotation = 90
+	bg.Parent = panel
+
+	-- ── Toggle button (always visible while panel is showing) ─────────────────
+	local sellToggle = Instance.new("TextButton")
+	sellToggle.Name             = "SellToggle"
+	sellToggle.Size             = UDim2.new(1, -16, 0, 36)
+	sellToggle.AnchorPoint      = Vector2.new(0.5, 0)
+	sellToggle.Position         = UDim2.new(0.5, 0, 0, 10)
+	sellToggle.BackgroundColor3 = Color3.fromRGB(55, 120, 75)
+	sellToggle.BorderSizePixel  = 0
+	sellToggle.AutoButtonColor  = false
+	sellToggle.Font             = Enum.Font.GothamBold
+	sellToggle.TextSize         = 13
+	sellToggle.TextColor3       = Color3.fromRGB(220, 255, 230)
+	sellToggle.Text             = "SELL"
+	sellToggle.ZIndex           = 111
+	sellToggle.Parent           = panel
+
+	local toggleCorner = Instance.new("UICorner")
+	toggleCorner.CornerRadius = UDim.new(0, 8)
+	toggleCorner.Parent = sellToggle
+
+	local toggleStroke = Instance.new("UIStroke")
+	toggleStroke.Thickness    = 1
+	toggleStroke.Transparency = 0.45
+	toggleStroke.Color        = Color3.fromRGB(90, 200, 120)
+	toggleStroke.Parent       = sellToggle
+
+	-- ── Divider ───────────────────────────────────────────────────────────────
+	local divider = Instance.new("Frame")
+	divider.Name                 = "Divider"
+	divider.Size                 = UDim2.new(1, -20, 0, 1)
+	divider.AnchorPoint          = Vector2.new(0.5, 0)
+	divider.Position             = UDim2.new(0.5, 0, 0, 54)
+	divider.BackgroundColor3     = Color3.fromRGB(60, 75, 110)
+	divider.BackgroundTransparency = 0.3
+	divider.BorderSizePixel      = 0
+	divider.ZIndex               = 111
+	divider.Visible              = false
+	divider.Parent               = panel
+
+	-- ── Totals label — 2-line compact display ─────────────────────────────────
+	local totalsLabel = Instance.new("TextLabel")
+	totalsLabel.Name               = "TotalsLabel"
+	totalsLabel.Size               = UDim2.new(1, -8, 0, 46)
+	totalsLabel.AnchorPoint        = Vector2.new(0.5, 0)
+	totalsLabel.Position           = UDim2.new(0.5, 0, 0, 60)
+	totalsLabel.BackgroundTransparency = 1
+	totalsLabel.Font               = Enum.Font.GothamMedium
+	totalsLabel.TextSize           = 12
+	totalsLabel.TextColor3         = Color3.fromRGB(190, 210, 245)
+	totalsLabel.TextXAlignment     = Enum.TextXAlignment.Center
+	totalsLabel.TextWrapped        = true
+	totalsLabel.Text               = ""
+	totalsLabel.Visible            = false
+	totalsLabel.ZIndex             = 111
+	totalsLabel.Parent             = panel
+
+	-- ── Confirm button ────────────────────────────────────────────────────────
+	local confirmBtn = Instance.new("TextButton")
+	confirmBtn.Name             = "ConfirmBtn"
+	confirmBtn.Size             = UDim2.new(1, -16, 0, 34)
+	confirmBtn.AnchorPoint      = Vector2.new(0.5, 0)
+	confirmBtn.Position         = UDim2.new(0.5, 0, 0, 112)
+	confirmBtn.BackgroundColor3 = Color3.fromRGB(55, 150, 80)
+	confirmBtn.BorderSizePixel  = 0
+	confirmBtn.AutoButtonColor  = false
+	confirmBtn.Font             = Enum.Font.GothamBold
+	confirmBtn.TextSize         = 13
+	confirmBtn.TextColor3       = Color3.new(1, 1, 1)
+	confirmBtn.Text             = "CONFIRM"
+	confirmBtn.Visible          = false
+	confirmBtn.ZIndex           = 111
+	confirmBtn.Parent           = panel
+
+	local confirmCorner = Instance.new("UICorner")
+	confirmCorner.CornerRadius = UDim.new(0, 8)
+	confirmCorner.Parent = confirmBtn
+
+	-- ── Cancel button ─────────────────────────────────────────────────────────
+	local cancelBtn = Instance.new("TextButton")
+	cancelBtn.Name             = "CancelBtn"
+	cancelBtn.Size             = UDim2.new(1, -16, 0, 30)
+	cancelBtn.AnchorPoint      = Vector2.new(0.5, 0)
+	cancelBtn.Position         = UDim2.new(0.5, 0, 0, 154)
+	cancelBtn.BackgroundColor3 = Color3.fromRGB(130, 50, 50)
+	cancelBtn.BorderSizePixel  = 0
+	cancelBtn.AutoButtonColor  = false
+	cancelBtn.Font             = Enum.Font.GothamBold
+	cancelBtn.TextSize         = 13
+	cancelBtn.TextColor3       = Color3.new(1, 1, 1)
+	cancelBtn.Text             = "CANCEL"
+	cancelBtn.Visible          = false
+	cancelBtn.ZIndex           = 111
+	cancelBtn.Parent           = panel
+
+	local cancelCorner = Instance.new("UICorner")
+	cancelCorner.CornerRadius = UDim.new(0, 8)
+	cancelCorner.Parent = cancelBtn
+
+	-- ── State sync ────────────────────────────────────────────────────────────
+	local function refreshSellBar()
+		local isOn  = sellModeEnabledValue.Value
+		local count = selectedSellCountValue.Value
+		local coins = selectedSellCoinsValue.Value
+
+		if isOn then
+			sellToggle.Text             = "EXIT SELL"
+			sellToggle.BackgroundColor3 = Color3.fromRGB(130, 50, 50)
+			sellToggle.TextColor3       = Color3.fromRGB(255, 200, 200)
+			toggleStroke.Color          = Color3.fromRGB(200, 90, 90)
+		else
+			sellToggle.Text             = "SELL"
+			sellToggle.BackgroundColor3 = Color3.fromRGB(55, 120, 75)
+			sellToggle.TextColor3       = Color3.fromRGB(220, 255, 230)
+			toggleStroke.Color          = Color3.fromRGB(90, 200, 120)
+		end
+
+		divider.Visible    = isOn
+		totalsLabel.Visible = isOn
+		confirmBtn.Visible  = isOn
+		cancelBtn.Visible   = isOn
+
+		if isOn then
+			if count > 0 then
+				local suffix = count == 1 and "" or "s"
+				totalsLabel.Text = string.format("%d card%s\n+%d coins", count, suffix, coins)
+			else
+				totalsLabel.Text = "Tap cards\nto select"
+			end
+			local hasSelection = count > 0
+			confirmBtn.BackgroundColor3 = hasSelection
+				and Color3.fromRGB(55, 150, 80)
+				or  Color3.fromRGB(35, 45, 35)
+			confirmBtn.TextColor3 = hasSelection
+				and Color3.new(1, 1, 1)
+				or  Color3.fromRGB(100, 120, 100)
+		end
+	end
+
+	-- Keep the panel pinned to the right edge of inventoryFrame, matching its height.
+	local function repositionPanel()
+		if not (panel and panel.Parent) then return end
+		local absPos  = inventoryFrame.AbsolutePosition
+		local absSize = inventoryFrame.AbsoluteSize
+		panel.Size     = UDim2.fromOffset(SELL_PANEL_W, absSize.Y)
+		panel.Position = UDim2.fromOffset(absPos.X + absSize.X + 8, absPos.Y)
+	end
+
+	inventoryFrame:GetPropertyChangedSignal("AbsolutePosition"):Connect(repositionPanel)
+	inventoryFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(repositionPanel)
+	task.defer(repositionPanel)
+
+	-- Mirror visibility; auto-exit sell mode when the inventory closes.
+	inventoryFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+		panel.Visible = inventoryFrame.Visible
+		if not inventoryFrame.Visible then
+			if sellModeEnabledValue.Value then
+				clearSellSelections()
+				sellModeEnabledValue.Value = false
+			end
+		end
+		refreshSellBar()
+	end)
+
+	sellModeEnabledValue:GetPropertyChangedSignal("Value"):Connect(refreshSellBar)
+	selectedSellCountValue:GetPropertyChangedSignal("Value"):Connect(refreshSellBar)
+	selectedSellCoinsValue:GetPropertyChangedSignal("Value"):Connect(refreshSellBar)
+
+	-- Button wiring
+	sellToggle.MouseButton1Click:Connect(function()
+		if sellModeEnabledValue.Value then
+			clearSellSelections()
+			sellModeEnabledValue.Value = false
+		else
+			sellModeEnabledValue.Value = true
+		end
+		refreshSellBar()
+	end)
+
+	confirmBtn.MouseButton1Click:Connect(function()
+		if selectedSellCountValue.Value > 0 then
+			confirmSellSelectionEvent:Fire()
+		end
+	end)
+
+	cancelBtn.MouseButton1Click:Connect(function()
+		clearSellSelections()
+		sellModeEnabledValue.Value = false
+		refreshSellBar()
+	end)
+
+	-- Subtle hover tint on toggle
+	sellToggle.MouseEnter:Connect(function()
+		TweenService:Create(sellToggle, TweenInfo.new(0.12), {
+			BackgroundTransparency = 0.25,
+		}):Play()
+	end)
+	sellToggle.MouseLeave:Connect(function()
+		TweenService:Create(sellToggle, TweenInfo.new(0.12), {
+			BackgroundTransparency = 0,
+		}):Play()
+	end)
+
+	refreshSellBar()
+	return panel
+end
+
+-- ── Bottom Stats HUD ──────────────────────────────────────────────────────────
+-- Centered glass panel matching the RPG HUD visual language.
+-- Layout: [LEVEL stat] | [ROLLS label + progress bar + count] | [COINS stat]
+-- Why centered: AnchorPoint (0.5,1) + Position (0.5,0,1,-14) adapts to any
+-- viewport width without needing a per-frame resize connection.
+
+local HUD_HEIGHT    = 72
+local HUD_MAX_WIDTH = 620
+local HUD_PAD_SIDE  = 16
+
+-- Builds one stat block (left or right side): a muted label above a bold value.
+local function makeStatBlock(parent, blockName, labelText, accentColor, xAlignEnum)
+	local block = parent:FindFirstChild(blockName)
+	if block and block:IsA("Frame") then
+		return block
+	end
+	if block then
+		block:Destroy()
+	end
+
+	block = Instance.new("Frame")
+	block.Name = blockName
+	block.Size = UDim2.new(0, 90, 1, 0)
+	block.BackgroundTransparency = 1
+	block.BorderSizePixel = 0
+	block.Parent = parent
+
+	-- Thin accent stripe along the inner edge
+	-- xEdge: 0 for left-aligned blocks, 1 for right-aligned (stripe hugs the
+	-- inner boundary so it visually separates sections inside the panel).
+	local xEdge = (xAlignEnum == Enum.TextXAlignment.Left) and 0 or 1
+	local stripe = Instance.new("Frame")
+	stripe.Name            = "Stripe"
+	stripe.Size            = UDim2.new(0, 3, 0.55, 0)
+	stripe.AnchorPoint     = Vector2.new(xEdge, 0.5)
+	stripe.Position        = UDim2.new(xEdge, 0, 0.5, 0)
+	stripe.BackgroundColor3 = accentColor
+	stripe.BorderSizePixel = 0
+	stripe.Parent          = block
+
+	local stripeCorner = Instance.new("UICorner")
+	stripeCorner.CornerRadius = UDim.new(0, 2)
+	stripeCorner.Parent = stripe
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Name = "Label"
+	lbl.Size = UDim2.new(1, 0, 0, 18)
+	lbl.Position = UDim2.fromOffset(0, 8)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = labelText
+	lbl.Font = Enum.Font.GothamMedium
+	lbl.TextSize = 12
+	lbl.TextColor3 = accentColor
+	lbl.TextXAlignment = xAlignEnum
+	lbl.Parent = block
+
+	local val = Instance.new("TextLabel")
+	val.Name = "Value"
+	val.Size = UDim2.new(1, 0, 0, 30)
+	val.Position = UDim2.fromOffset(0, 26)
+	val.BackgroundTransparency = 1
+	val.Text = "0"
+	val.Font = Enum.Font.GothamBold
+	val.TextSize = 26
+	val.TextColor3 = Color3.fromRGB(240, 245, 255)
+	val.TextXAlignment = xAlignEnum
+	val.Parent = block
+
+	return block
+end
+
+-- Builds the center rolls section: label + progress bar + count text.
+local function makeRollsSection(parent)
+	local section = parent:FindFirstChild("RollsSection")
+	if section and section:IsA("Frame") then
+		return section
+	end
+	if section then
+		section:Destroy()
+	end
+
+	section = Instance.new("Frame")
+	section.Name = "RollsSection"
+	section.Size = UDim2.new(1, -(90 + 90 + HUD_PAD_SIDE * 4), 1, 0)
+	section.AnchorPoint = Vector2.new(0.5, 0)
+	section.Position = UDim2.new(0.5, 0, 0, 0)
+	section.BackgroundTransparency = 1
+	section.BorderSizePixel = 0
+	section.Parent = parent
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Name = "Label"
+	lbl.Size = UDim2.new(1, 0, 0, 16)
+	lbl.Position = UDim2.fromOffset(0, 7)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = "ROLLS TO NEXT LEVEL"
+	lbl.Font = Enum.Font.GothamMedium
+	lbl.TextSize = 11
+	lbl.TextColor3 = Color3.fromRGB(130, 160, 210)
+	lbl.TextXAlignment = Enum.TextXAlignment.Center
+	lbl.Parent = section
+
+	-- Progress bar track
+	local track = Instance.new("Frame")
+	track.Name = "Track"
+	track.Size = UDim2.new(1, 0, 0, 10)
+	track.Position = UDim2.fromOffset(0, 26)
+	track.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
+	track.BorderSizePixel = 0
+	track.ClipsDescendants = true
+	track.Parent = section
+
+	local trackCorner = Instance.new("UICorner")
+	trackCorner.CornerRadius = UDim.new(0, 5)
+	trackCorner.Parent = track
+
+	-- Fill bar
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.fromScale(0, 1)
+	fill.BackgroundColor3 = Color3.fromRGB(80, 148, 255)
+	fill.BorderSizePixel = 0
+	fill.Parent = track
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, 5)
+	fillCorner.Parent = fill
+
+	-- Subtle gloss highlight on the fill
+	local gloss = Instance.new("Frame")
+	gloss.Name = "Gloss"
+	gloss.Size = UDim2.new(1, 0, 0.6, 0)
+	gloss.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	gloss.BackgroundTransparency = 0.82
+	gloss.BorderSizePixel = 0
+	gloss.Parent = fill
+
+	local glossCorner = Instance.new("UICorner")
+	glossCorner.CornerRadius = UDim.new(0, 4)
+	glossCorner.Parent = gloss
+
+	-- Fill gradient (lighter left edge)
+	local fillGrad = Instance.new("UIGradient")
+	fillGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0,   Color3.fromRGB(120, 185, 255)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(80,  148, 255)),
+		ColorSequenceKeypoint.new(1,   Color3.fromRGB(55,  110, 220)),
+	})
+	fillGrad.Rotation = 0
+	fillGrad.Parent = fill
+
+	-- Compact count label below bar
+	local countLbl = Instance.new("TextLabel")
+	countLbl.Name = "CountLabel"
+	countLbl.Size = UDim2.new(1, 0, 0, 16)
+	countLbl.Position = UDim2.fromOffset(0, 39)
+	countLbl.BackgroundTransparency = 1
+	countLbl.Text = "0 / 10"
+	countLbl.Font = Enum.Font.GothamMedium
+	countLbl.TextSize = 12
+	countLbl.TextColor3 = Color3.fromRGB(165, 185, 220)
+	countLbl.TextXAlignment = Enum.TextXAlignment.Center
+	countLbl.Parent = section
+
+	return section
 end
 
 local function ensureBottomStatsBar()
@@ -1210,49 +1740,103 @@ local function ensureBottomStatsBar()
 			statsBar:Destroy()
 		end
 
+		-- Soft drop shadow (same technique as RPG HUD modals)
+		local shadow = Instance.new("ImageLabel")
+		shadow.Name = "BottomStatsBarShadow"
+		shadow.AnchorPoint = Vector2.new(0.5, 1)
+		shadow.Size = UDim2.new(0, HUD_MAX_WIDTH + 48, 0, HUD_HEIGHT + 32)
+		shadow.Position = UDim2.new(0.5, 0, 1, -6)
+		shadow.BackgroundTransparency = 1
+		shadow.Image = "rbxassetid://466659280"
+		shadow.ImageColor3 = Color3.new(0, 0, 0)
+		shadow.ImageTransparency = 0.55
+		shadow.ZIndex = 38
+		shadow.Parent = mainUI
+
+		-- Main glass panel
 		statsBar = Instance.new("Frame")
 		statsBar.Name = "BottomStatsBar"
-		statsBar.AnchorPoint = Vector2.new(0, 1)
-		statsBar.Size = UDim2.fromOffset(486, 52)
-		statsBar.Position = UDim2.new(0, 190, 1, -12)
-		statsBar.BackgroundColor3 = Color3.fromRGB(14, 16, 22)
-		statsBar.BackgroundTransparency = 0.1
+		-- Centered, anchored to bottom of screen
+		statsBar.AnchorPoint = Vector2.new(0.5, 1)
+		statsBar.Position = UDim2.new(0.5, 0, 1, -14)
+		statsBar.Size = UDim2.fromOffset(HUD_MAX_WIDTH, HUD_HEIGHT)
+		statsBar.BackgroundColor3 = Color3.fromRGB(18, 20, 28)
+		statsBar.BackgroundTransparency = 0.08
 		statsBar.BorderSizePixel = 0
 		statsBar.ZIndex = 40
 		statsBar.Parent = mainUI
 
-		local barCorner = Instance.new("UICorner")
-		barCorner.CornerRadius = UDim.new(0, 12)
-		barCorner.Parent = statsBar
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 16)
+		corner.Parent = statsBar
 
-		local barStroke = Instance.new("UIStroke")
-		barStroke.Thickness = 1
-		barStroke.Transparency = 0.15
-		barStroke.Color = Color3.fromRGB(82, 92, 112)
-		barStroke.Parent = statsBar
+		-- Subtle outer stroke
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 1.5
+		stroke.Transparency = 0.45
+		stroke.Color = Color3.fromRGB(70, 100, 160)
+		stroke.Parent = statsBar
 
-		local barPadding = Instance.new("UIPadding")
-		barPadding.PaddingLeft = UDim.new(0, 8)
-		barPadding.PaddingRight = UDim.new(0, 8)
-		barPadding.PaddingTop = UDim.new(0, 4)
-		barPadding.PaddingBottom = UDim.new(0, 4)
-		barPadding.Parent = statsBar
+		-- Background gradient (top brighter, bottom darker — glass depth)
+		local bg = Instance.new("UIGradient")
+		bg.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0,   Color3.fromRGB(30, 34, 48)),
+			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(18, 20, 28)),
+			ColorSequenceKeypoint.new(1,   Color3.fromRGB(14, 16, 22)),
+		})
+		bg.Rotation = 90
+		bg.Parent = statsBar
 
-		local row = Instance.new("UIListLayout")
-		row.Name = "RowLayout"
-		row.FillDirection = Enum.FillDirection.Horizontal
-		row.HorizontalAlignment = Enum.HorizontalAlignment.Left
-		row.VerticalAlignment = Enum.VerticalAlignment.Center
-		row.Padding = UDim.new(0, 9)
-		row.Parent = statsBar
+		-- Horizontal dividers to visually separate the three sections
+		local divLeft = Instance.new("Frame")
+		divLeft.Name = "DivLeft"
+		divLeft.AnchorPoint = Vector2.new(0, 0.5)
+		divLeft.Size = UDim2.new(0, 1, 0.6, 0)
+		divLeft.Position = UDim2.new(0, 90 + HUD_PAD_SIDE * 2, 0.5, 0)
+		divLeft.BackgroundColor3 = Color3.fromRGB(60, 75, 110)
+		divLeft.BackgroundTransparency = 0.3
+		divLeft.BorderSizePixel = 0
+		divLeft.ZIndex = 41
+		divLeft.Parent = statsBar
+
+		local divRight = Instance.new("Frame")
+		divRight.Name = "DivRight"
+		divRight.AnchorPoint = Vector2.new(1, 0.5)
+		divRight.Size = UDim2.new(0, 1, 0.6, 0)
+		divRight.Position = UDim2.new(1, -(90 + HUD_PAD_SIDE * 2), 0.5, 0)
+		divRight.BackgroundColor3 = Color3.fromRGB(60, 75, 110)
+		divRight.BackgroundTransparency = 0.3
+		divRight.BorderSizePixel = 0
+		divRight.ZIndex = 41
+		divRight.Parent = statsBar
+
+		-- Padding wrapper so children sit inside the panel edges
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft  = UDim.new(0, HUD_PAD_SIDE)
+		pad.PaddingRight = UDim.new(0, HUD_PAD_SIDE)
+		pad.Parent = statsBar
 	end
 
-	local rollsPill = ensureStatsPill(statsBar, "RollsPill", "ROLLS", Color3.fromRGB(86, 160, 255))
-	rollsPill.LayoutOrder = 1
-	local levelPill = ensureStatsPill(statsBar, "LevelPill", "LEVEL", Color3.fromRGB(128, 210, 138))
-	levelPill.LayoutOrder = 2
-	local coinsPill = ensureStatsPill(statsBar, "CoinsPill", "COINS", Color3.fromRGB(255, 200, 92))
-	coinsPill.LayoutOrder = 3
+	-- Left section: LEVEL
+	local levelBlock = makeStatBlock(
+		statsBar, "LevelBlock",
+		"LEVEL", Color3.fromRGB(128, 210, 138),
+		Enum.TextXAlignment.Left
+	)
+	levelBlock.AnchorPoint = Vector2.new(0, 0)
+	levelBlock.Position    = UDim2.fromOffset(0, 0)
+
+	-- Right section: COINS
+	local coinsBlock = makeStatBlock(
+		statsBar, "CoinsBlock",
+		"COINS", Color3.fromRGB(255, 200, 92),
+		Enum.TextXAlignment.Right
+	)
+	coinsBlock.AnchorPoint = Vector2.new(1, 0)
+	coinsBlock.Position    = UDim2.new(1, 0, 0, 0)
+
+	-- Center section: ROLLS progress bar
+	makeRollsSection(statsBar)
 
 	return statsBar
 end
@@ -1265,22 +1849,41 @@ updateProgressStatsDisplay = function()
 		return
 	end
 
-
-	local rollsPill = statsBar:FindFirstChild("RollsPill")
-	if rollsPill and rollsPill:FindFirstChild("Value") then
-		local rollsNeeded = getCumulativeRollsToLevel(currentLevel)
-		local rollsText = string.format("%d / %d", currentRollCount, rollsNeeded)
-		rollsPill.Value.Text = rollsText
+	-- Level
+	local levelBlock = statsBar:FindFirstChild("LevelBlock")
+	if levelBlock and levelBlock:FindFirstChild("Value") then
+		levelBlock.Value.Text = tostring(currentLevel)
 	end
 
-	local levelPill = statsBar:FindFirstChild("LevelPill")
-	if levelPill and levelPill:FindFirstChild("Value") then
-		levelPill.Value.Text = tostring(currentLevel)
+	-- Coins
+	local coinsBlock = statsBar:FindFirstChild("CoinsBlock")
+	if coinsBlock and coinsBlock:FindFirstChild("Value") then
+		coinsBlock.Value.Text = tostring(currencyValue.Value)
 	end
 
-	local coinsPill = statsBar:FindFirstChild("CoinsPill")
-	if coinsPill and coinsPill:FindFirstChild("Value") then
-		coinsPill.Value.Text = tostring(currencyValue.Value)
+	-- Rolls progress bar + count label.
+	-- Server uses flat formula: level = floor(totalRolls / ROLLS_PER_LEVEL) + 1.
+	-- Progress within the current level = totalRolls mod ROLLS_PER_LEVEL.
+	local rollsSection = statsBar:FindFirstChild("RollsSection")
+	if rollsSection then
+		local rollsPerLevel = BalanceConfig.ROLLS_PER_LEVEL
+		local rollsInLevel = currentRollCount % rollsPerLevel
+		local pct = math.clamp(rollsInLevel / rollsPerLevel, 0, 1)
+
+		local track = rollsSection:FindFirstChild("Track")
+		if track then
+			local fill = track:FindFirstChild("Fill")
+			if fill then
+				TweenService:Create(fill, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					Size = UDim2.fromScale(pct, 1)
+				}):Play()
+			end
+		end
+
+		local countLbl = rollsSection:FindFirstChild("CountLabel")
+		if countLbl then
+			countLbl.Text = string.format("%d / %d", rollsInLevel, rollsPerLevel)
+		end
 	end
 end
 
@@ -1317,17 +1920,27 @@ end
 
 updateProgressStatsDisplay()
 
+-- Fulfill the forward declaration so the sell confirm handler can use it.
+EconomyClient = require(script.Parent:WaitForChild("services"):WaitForChild("EconomyClient"))
+task.spawn(function()
+	local ok, err = EconomyClient.SyncState()
+	if not ok then
+		warn("[InventoryController] Failed to sync economy state:", err)
+	end
+end)
+
 findCardArtDecal = function(cardId)
 	if type(cardId) ~= "string" or cardId == "" then
 		return nil
 	end
 
-	local exact = artFolder:FindFirstChild(cardId)
+	local baseCardId = getBaseCardId(cardId) or cardId
+	local exact = artFolder:FindFirstChild(baseCardId)
 	if exact and exact:IsA("Decal") then
 		return exact
 	end
 
-	local target = string.lower(cardId)
+	local target = string.lower(baseCardId)
 	for _, obj in ipairs(artFolder:GetChildren()) do
 		if obj:IsA("Decal") and string.lower(obj.Name) == target then
 			return obj
@@ -1414,6 +2027,7 @@ local function moveOneCardToFrame(card, targetParent, targetSlotIndex)
 		card.Size = UDim2.fromScale(1, 1)
 		card.Position = UDim2.fromOffset(0, 0)
 		SetCardStackVisual(card, combatDeckFrame)
+		deckDirtySinceLastSave = true
 		SaveDeckState()
 		return true
 	end
@@ -1426,6 +2040,7 @@ local function moveOneCardToFrame(card, targetParent, targetSlotIndex)
 	if sourceParent == combatDeckFrame and targetParent == inventoryFrame then
 		card:Destroy()
 		AddCardToInventory(cardId, false)
+		deckDirtySinceLastSave = true
 		SaveDeckState()
 		return true
 	end
@@ -1470,6 +2085,7 @@ local function moveOneCardToFrame(card, targetParent, targetSlotIndex)
 		if not placed then
 			-- Roll back consumed card if placement fails.
 			AddCardToInventory(cardId, false)
+			deckDirtySinceLastSave = true
 			SaveDeckState()
 			return false
 		end
@@ -1479,6 +2095,7 @@ local function moveOneCardToFrame(card, targetParent, targetSlotIndex)
 		placed.Size = UDim2.fromScale(1, 1)
 		placed.Position = UDim2.fromOffset(0, 0)
 		SetCardStackVisual(placed, combatDeckFrame)
+		deckDirtySinceLastSave = true
 		SaveDeckState()
 		return true
 	end
@@ -1488,10 +2105,12 @@ end
 
 -- Card management
 function CreateCard(cardId)
-	local resolvedCardId = CardDatabase.ResolveCardIdStrict(cardId)
-	if not resolvedCardId then
+	local parsed = parseCardReference(cardId)
+	if not parsed then
 		return nil
 	end
+	local resolvedCardId = parsed.BaseCardId
+	local normalizedCardRef = parsed.CardRef
 
 	local data = CardDatabase.GetCardData(resolvedCardId)
 	if not data then
@@ -1499,23 +2118,42 @@ function CreateCard(cardId)
 	end
 
 	local newCard = template:Clone()
-	newCard.Name = resolvedCardId
-	newCard:SetAttribute("CardId", resolvedCardId)
+	newCard.Name = normalizedCardRef
+	newCard:SetAttribute("CardId", normalizedCardRef)
+	newCard:SetAttribute("BaseCardId", resolvedCardId)
+	newCard:SetAttribute("IsBordered", parsed.IsBordered == true)
+
+	local currentStats = ClientStateManager.getStats()
+	local foilChancePoints = currentStats and (currentStats.FoilChance or currentStats.BorderChance) or 0
+	local foilTier = parsed.BorderTier or BalanceConfig.GetFoilTier(foilChancePoints)
+	-- Foil tier letter for name prefix: (S)ilver, (G)old, (D)iamond, (R)ainbow, (C)orrupted
+	local FOIL_LETTER = { Silver = "S", Gold = "G", Diamond = "D", Rainbow = "R", Corrupted = "C" }
+	local foilLetter = FOIL_LETTER[foilTier] or "B"
+
 	newCard.Size = UDim2.fromScale(1, 1)  -- Fill grid cell
 	newCard.BackgroundTransparency = 1  -- Remove button background
 	newCard.ZIndex = 6
-	
-	-- Layout labels proportionally
-	newCard.NameLabel.Text = data.Name
-	newCard.NameLabel.Size = UDim2.new(1, -8, 0.25, 0)
-	newCard.NameLabel.Position = UDim2.fromOffset(4, 2)
-	newCard.NameLabel.Font = CARD_NAME_FONT
-	newCard.NameLabel.TextColor3 = Color3.new(1, 1, 1)  -- White text
-	newCard.NameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-	newCard.NameLabel.TextStrokeTransparency = 0
-	newCard.NameLabel.BackgroundTransparency = 1  -- No background
-	
-	newCard.AttackLabel.Text = CardDatabase.FormatAttack(data.Attack)
+
+	-- Replace template NameLabel with 3-layer parallax
+	local nameContainer = newCard:FindFirstChild("NameLabel")
+	if nameContainer then
+		nameContainer:Destroy()
+	end
+	nameContainer = ParallaxNameLabel.create(newCard, {
+		size = UDim2.new(1, -8, 0.25, 0),
+		position = UDim2.fromOffset(4, 2),
+		font = CARD_NAME_FONT,
+		textSize = 14,
+		textColor = Color3.new(1, 1, 1),
+		zIndex = 7,
+		baseName = "NameLabel",
+		textXAlignment = Enum.TextXAlignment.Left,
+		textYAlignment = Enum.TextYAlignment.Top,
+		textWrapped = true,
+	})
+	ParallaxNameLabel.setText(nameContainer, parsed.IsBordered and ("(" .. foilLetter .. ") " .. data.Name) or data.Name)
+
+	newCard.AttackLabel.Text = CardDatabase.FormatCombatPower(normalizedCardRef, foilChancePoints)
 	newCard.AttackLabel.Size = UDim2.fromScale(0.9, 0.4)
 	newCard.AttackLabel.Position = UDim2.fromScale(0.03, 0.62)
 	newCard.AttackLabel.Font = CARD_STAT_FONT
@@ -1543,7 +2181,7 @@ function CreateCard(cardId)
 		hpLabel.Name = "HpLabel"
 		hpLabel.Parent = newCard
 	end
-	hpLabel.Text = "HP: " .. CardDatabase.FormatAttack(data.Health)
+	hpLabel.Text = "" -- Hide HP when showing CP
 	hpLabel.Size = UDim2.fromScale(0.9, 0.22)
 	hpLabel.Position = UDim2.fromScale(0.03, 0.47)
 	hpLabel.Font = CARD_STAT_FONT
@@ -1586,7 +2224,31 @@ function CreateCard(cardId)
 	newCard.NumberLabel.Text = "1"  -- Default to 1
 	applyAnimatedCardBorder(newCard, data.Rarity, resolvedCardId)
 
-	applyCardArtVisual(newCard, resolvedCardId, data)
+	-- foilTier already resolved above for name prefix and foil visual
+
+	-- Capture the foil controller so MouseEnter/Leave can switch its intensity.
+	local foilController = nil
+	if parsed.IsBordered then
+		foilController = applyBorderedVariantVisual(newCard, foilTier)
+	end
+
+	applyCardArtVisual(newCard, normalizedCardRef, data)
+
+	-- Why: One UIScale per card, created once, lets us spring-animate scale on hover
+	-- without modifying Size (which would corrupt layout calculations).
+	-- The Spring integrator produces an overshoot (slight bounce) that feels more
+	-- physical than a linear or ease-out tween.
+	local cardScale = newCard:FindFirstChild("HoverUIScale")
+	if not (cardScale and cardScale:IsA("UIScale")) then
+		cardScale = Instance.new("UIScale")
+		cardScale.Name   = "HoverUIScale"
+		cardScale.Scale  = 1
+		cardScale.Parent = newCard
+	end
+
+	local cardSpring = Spring.new(1, 200, 22)
+	activeScaleSprings[cardSpring] = cardScale
+	ensureSpringDriver()
 
 	-- Drag to move cards between decks. If no drag occurs, click still quick-moves one card.
 	local dragging = false
@@ -1763,44 +2425,80 @@ function CreateCard(cardId)
 
 	newCard.MouseEnter:Connect(function()
 		if not dragging then
-			showHoverPreview(resolvedCardId)
+			if not DeviceContext.getIsMobile() then
+				showHoverPreview(normalizedCardRef)
+			end
+			-- Spring zoom: target 1.08 produces a natural overshoot then settle,
+			-- making the card feel like it physically lifts toward the cursor.
+			cardSpring.target = 1.08
+			ensureSpringDriver()
+			-- Intensify foil shimmer on bordered cards to signal interactivity.
+			if foilController then
+				foilController:SetIntensity("Hover")
+			end
 		end
 	end)
 
 	newCard.MouseLeave:Connect(function()
-		hideHoverPreview(0.05)
+		if not DeviceContext.getIsMobile() then
+			hideHoverPreview(0.05)
+		end
+		cardSpring.target = 1.0
+		if foilController then
+			foilController:SetIntensity("Idle")
+		end
+	end)
+
+	-- Why: Unregister spring and destroy foil when the card is removed so the
+	-- shared driver and HoloFoilController have no dangling references.
+	newCard.Destroying:Connect(function()
+		activeScaleSprings[cardSpring] = nil
+		if foilController then
+			foilController:Destroy()
+		end
 	end)
 
 	SetCardStackVisual(newCard, getCardDeckContainer(newCard) or inventoryFrame)
-	applyCardArtVisual(newCard, resolvedCardId, data)
+	applyCardArtVisual(newCard, normalizedCardRef, data)
 
 	return newCard
 end
 
 -- Function to add a card to inventory
-function AddCardToInventory(cardId, shouldSave)
-	local resolvedCardId = CardDatabase.ResolveCardIdStrict(cardId)
-	if not resolvedCardId then
+AddCardToInventory = function(cardId, shouldSave)
+	local normalizedCardRef = normalizeCardReference(cardId)
+	if not normalizedCardRef then
 		return
 	end
 
-	local existingCard = inventoryFrame:FindFirstChild(resolvedCardId)
-	if existingCard then
-		local num = tonumber(existingCard.NumberLabel.Text) or 1
-		existingCard.NumberLabel.Text = tostring(num + 1)
-		SetCardStackVisual(existingCard, inventoryFrame)
-			-- (Removed blood VFX for TestBattleCard)
-	else
-		local card = CreateCard(resolvedCardId)
-		if card then
-			card.NumberLabel.Text = "1"
-			card.Parent = inventoryFrame
-			SetCardStackVisual(card, inventoryFrame)
-				-- (Removed blood VFX for TestBattleCard)
+	ClientStateManager.addCardToInventory(normalizedCardRef)
+
+	for _, existingCard in ipairs(inventoryFrame:GetChildren()) do
+		if existingCard:IsA("GuiButton") and getCardIdFromGuiCard(existingCard) == normalizedCardRef then
+			local num = tonumber(existingCard.NumberLabel.Text) or 1
+			existingCard.NumberLabel.Text = tostring(num + 1)
+			SetCardStackVisual(existingCard, inventoryFrame)
+			if shouldSave ~= false then
+				deckDirtySinceLastSave = true
+				SaveDeckState()
+			end
+			if sellModeEnabledValue.Value then
+				refreshSellSelectionTotals()
+			end
+			return
 		end
 	end
 
+	local card = CreateCard(normalizedCardRef)
+	if card then
+		card.NumberLabel.Text = "1"
+		card.Parent = inventoryFrame
+		SetCardStackVisual(card, inventoryFrame)
+		applyCardArtVisual(card, normalizedCardRef, CardDatabase.GetCardData(getBaseCardId(normalizedCardRef)))
+	end
+
 	if shouldSave ~= false then
+		deckDirtySinceLastSave = true
 		SaveDeckState()
 	end
 	if sellModeEnabledValue.Value then
@@ -1819,6 +2517,7 @@ local function AddMultipleCardsToInventory(cardIds)
 		end
 	end
 
+	deckDirtySinceLastSave = true
 	SaveDeckState()
 	if sellModeEnabledValue.Value then
 		refreshSellSelectionTotals()
@@ -1905,9 +2604,53 @@ function SetupGridLayouts()
 	end
 end
 
+-- Apply buff state from snapshot so potion timers persist across rejoin
+local function applyBuffSnapshot(buffs)
+	if type(buffs) ~= "table" then return end
+	local now = os.time()
+	local autoRollEv = ReplicatedStorage:FindFirstChild("AutoRollBuffEvent")
+	local luckEv = require(script.Parent.core:WaitForChild("BuffBridge")).GetLuckBuffEvent()
+	local foilEv = require(script.Parent.core:WaitForChild("BuffBridge")).GetFoilChanceBuffEvent()
+	if buffs.autoRoll and type(buffs.autoRoll) == "table" then
+		local endsAt = tonumber(buffs.autoRoll.endsAt)
+		local mult = tonumber(buffs.autoRoll.multiplier) or 1
+		if endsAt and endsAt > now and autoRollEv then
+			autoRollEv:Fire({ multiplier = mult, duration = math.max(1, endsAt - now) })
+		end
+	end
+	if buffs.luck and type(buffs.luck) == "table" then
+		local endsAt = tonumber(buffs.luck.endsAt)
+		local bonus = tonumber(buffs.luck.bonus) or 0
+		if endsAt and endsAt > now and bonus > 0 and luckEv then
+			luckEv:Fire({ luckBonus = bonus, duration = math.max(1, endsAt - now) })
+		end
+	end
+	-- Accept foilChance or legacy borderChance for backward compat
+	local fc = buffs.foilChance or buffs.borderChance
+	if fc and type(fc) == "table" then
+		local endsAt = tonumber(fc.endsAt)
+		local bonus = tonumber(fc.bonus) or 0
+		if endsAt and endsAt > now and bonus > 0 and foilEv then
+			foilEv:Fire({ foilChanceBonus = bonus, duration = math.max(1, endsAt - now) })
+		end
+	end
+end
+
 -- Handle incoming data
 saveEvent.OnClientEvent:Connect(function(data)
-	print("[DEBUG] saveEvent.OnClientEvent fired. Data:", data)
+	-- Clear dirty flag; briefly block saves so any deferred SaveDeckState doesn't
+	-- race with UI rebuild. Snapshot is authoritative.
+	deckDirtySinceLastSave = false
+	saveBlockedUntil = os.clock() + 1
+	-- Sync all server state (including reconciled stats) into ClientStateManager so
+	-- every subscriber (Profile UI, HUD, etc.) reflects the authoritative snapshot.
+	if type(data) == "table" then
+		ClientStateManager.syncFromServer(data)
+		applyBuffSnapshot(data.buffs)
+		if data.clientSettings then
+			SettingsUIController.ApplyClientSettings(data.clientSettings)
+		end
+	end
 	SetProgress(data and data.rollCount, data and data.level)
 	if data and type(data.coins) == "number" then
 		getCurrencyValueObject().Value = math.max(0, math.floor(data.coins))
@@ -1921,20 +2664,19 @@ saveEvent.OnClientEvent:Connect(function(data)
 	end
 	clearSellSelections()
 
-	-- Robust UI restoration
-	inventoryFrame.Visible = false
-	combatDeckFrame.Visible = false
+	-- Preserve whichever deck is currently shown (inventory vs combat) so a
+	-- server-triggered reload does not collapse the open modal to blank.
+	local wasInventoryVisible = inventoryFrame.Visible
+	local wasCombatVisible = combatDeckFrame.Visible
 	inventoryFrame.Parent = mainUI
 	combatDeckFrame.Parent = mainUI
-	print("[DEBUG] inventoryFrame.Visible:", inventoryFrame.Visible, "Parent:", inventoryFrame.Parent)
-	print("[DEBUG] combatDeckFrame.Visible:", combatDeckFrame.Visible, "Parent:", combatDeckFrame.Parent)
+	inventoryFrame.Visible = wasInventoryVisible
+	combatDeckFrame.Visible = wasCombatVisible
+
 	local statsBar = mainUI:FindFirstChild("BottomStatsBar")
 	if statsBar then
 		statsBar.Visible = true
 		statsBar.Parent = mainUI
-		print("[DEBUG] statsBar.Visible:", statsBar.Visible, "Parent:", statsBar.Parent)
-	else
-		print("[DEBUG] BottomStatsBar missing!")
 	end
 
 	-- Clear frames
@@ -1957,9 +2699,6 @@ saveEvent.OnClientEvent:Connect(function(data)
 			card.NumberLabel.Text = tostring(count)
 			card.Parent = inventoryFrame
 			SetCardStackVisual(card, inventoryFrame)
-			print("[DEBUG] Added card to inventory:", cardId, "count:", count, "Visible:", card.Visible, "Parent:", card.Parent)
-		else
-			print("[DEBUG] Failed to create card:", cardId)
 		end
 	end
 
@@ -1980,9 +2719,6 @@ saveEvent.OnClientEvent:Connect(function(data)
 				card.Size = UDim2.fromScale(1, 1)
 				card.Position = UDim2.fromOffset(0, 0)
 				SetCardStackVisual(card, combatDeckFrame)
-				print("[DEBUG] Added card to combat slot:", slotIndex, cardId, "Visible:", card.Visible, "Parent:", card.Parent)
-			else
-				print("[DEBUG] Failed to create combat card or slot:", slotIndex, cardId)
 			end
 		end
 	end
@@ -1997,7 +2733,7 @@ saveEvent.OnClientEvent:Connect(function(data)
 		end)
 	end
 
-	-- Force layout update
+	-- Force layout update, then signal rebuild so sort preference can be reapplied
 	task.defer(function()
 		for _, frame in pairs({inventoryFrame}) do
 			local layout = frame:FindFirstChildOfClass("UIGridLayout")
@@ -2007,18 +2743,18 @@ saveEvent.OnClientEvent:Connect(function(data)
 				layout.CellPadding = oldPadding
 			end
 		end
+		inventoryRebuiltEvent:Fire()
 	end)
 
-	-- Extra: ensure all UI elements are visible and parented
-	       -- Only restore BottomStatsBar, not InventoryDeckLabel
-		       local restoredStatsBar = mainUI:FindFirstChild("BottomStatsBar")
-		       if restoredStatsBar then
-			       restoredStatsBar.Visible = true
-			       restoredStatsBar.Parent = mainUI
-			       print("[DEBUG] UI restored: BottomStatsBar Visible:", restoredStatsBar.Visible, "Parent:", restoredStatsBar.Parent)
-		       else
-			       print("[DEBUG] UI missing: BottomStatsBar")
-		       end
+	-- Restore BottomStatsBar visibility in case a prior event hid it.
+	local restoredStatsBar = mainUI:FindFirstChild("BottomStatsBar")
+	if restoredStatsBar then
+		restoredStatsBar.Visible = true
+		restoredStatsBar.Parent = mainUI
+	end
+
+	-- Ensure the sell toolbar exists and is correctly positioned.
+	ensureSellToolbar()
 end)
 
 -- Request initial data

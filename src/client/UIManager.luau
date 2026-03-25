@@ -1,22 +1,12 @@
--- UIManager.client.luau
--- Central manager for scalable UI modules
-
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
-local mainUI = playerGui:WaitForChild("MainUI")
-
-local ShopUI = require(script.Parent.ShopUI)
-local InventoryUIController = require(script.Parent.InventoryUIController)
--- Add more UI modules as needed
+-- UIManager.luau
+-- DEPRECATED: This module is no longer used. RPGHUDController handles all UI management.
+-- Kept for backwards compatibility - all functionality moved to UIUtility.client.luau
 
 local UIManager = {}
 
 function UIManager.Init()
-    -- Initialize each UI module
-    ShopUI.Create(mainUI)
-    InventoryUIController.Create(mainUI)
-    -- Add more as needed
+	-- UI initialization handled by UIUtility.client.luau
+	print("[UIManager] DEPRECATED - Use UIUtility.client.luau instead")
 end
 
 return UIManager

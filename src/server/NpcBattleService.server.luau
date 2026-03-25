@@ -4,6 +4,7 @@ local Workspace = game:GetService("Workspace")
 
 local BattleProtocol = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BattleProtocol"))
 local CardDatabase = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
+local ServerStateManager = require(script.Parent.core:WaitForChild("ServerStateManager"))
 local BattleBalanceConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BattleBalanceConfig"))
 local CardAbilityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardAbilityConfig"))
 
@@ -284,7 +285,8 @@ local function sanitizeDeckSnapshot(rawDeck)
 		end
 
 		if type(cardRef) == "string" and cardRef ~= "" then
-			local resolved = CardDatabase.ResolveCardIdStrict(cardRef)
+			local parsed = CardDatabase.ParseCardReference(cardRef)
+			local resolved = (parsed and parsed.CardRef) or cardRef
 			if resolved then
 				table.insert(out, {
 					cardId = resolved,
@@ -785,9 +787,11 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 		local deck = sanitizeDeckSnapshot(payload.deck)
 		session.playerDeck = deck
 		session.playerCardStates = {}
+		local foilChancePoints = ServerStateManager.getFoilChance(player.UserId)
 		for _, entry in ipairs(deck) do
 			local cardData = CardDatabase.GetCardData(entry.cardId)
-			local maxHealth = math.max(1, math.floor(tonumber(cardData and cardData.Health) or 100))
+			local foilMultipliers = CardDatabase.GetFoilStatMultipliers(entry.cardId, foilChancePoints)
+			local maxHealth = math.max(1, math.floor((tonumber(cardData and cardData.Health) or 100) * (tonumber(foilMultipliers.HpMultiplier) or 1)))
 			table.insert(session.playerCardStates, {
 				slotIndex = entry.slotIndex,
 				cardId = entry.cardId,
@@ -804,6 +808,7 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 			local now = os.clock()
 			for i, entry in ipairs(firstWave) do
 				local waveCardData = CardDatabase.GetCardData(entry.cardId)
+				local foilMultipliers = CardDatabase.GetFoilStatMultipliers(entry.cardId, foilChancePoints)
 				local attackIntervalSeconds = math.max(0.5, tonumber(waveCardData and waveCardData.AttackIntervalSeconds) or DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS)
 				local abilityId = (type(waveCardData and waveCardData.AbilityId) == "string") and waveCardData.AbilityId or ""
 				local abilityDef = CardAbilityConfig.GetAbility(abilityId)
@@ -821,7 +826,7 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 
 				for _, state in ipairs(session.playerCardStates) do
 					if state.slotIndex == entry.slotIndex then
-						state.baseAttack = math.max(1, math.floor(tonumber(waveCardData and waveCardData.Attack) or 1))
+						state.baseAttack = math.max(1, math.floor((tonumber(waveCardData and waveCardData.Attack) or 1) * (tonumber(foilMultipliers.AtkMultiplier) or 1)))
 						state.baseAttackIntervalSeconds = attackIntervalSeconds
 						state.abilityId = abilityId
 						state.abilityCooldownSeconds = abilityCooldownSeconds

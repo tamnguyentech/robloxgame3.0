@@ -8,7 +8,7 @@ if not ResetAllRollsEvent then
 end
 
 -- Reference the actual playerData table from SaveManager
-local SaveManager = require(script.Parent:FindFirstChild("SaveManager"))
+local SaveManager = require(script.Parent:WaitForChild("SaveManager"))
 
 ResetAllRollsEvent.OnServerEvent:Connect(function(sender)
     SaveManager.ResetAllPlayers(sender)

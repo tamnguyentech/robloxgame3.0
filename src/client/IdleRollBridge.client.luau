@@ -23,9 +23,11 @@ rewardEvent.OnClientEvent:Connect(function(payload)
 		return
 	end
 
+	-- Forward stats so IdleCardGainer can sync ClientStateManager after every roll.
 	idleEvent:Fire({
-		cardId = payload.cardId,
+		cardId    = payload.cardId,
 		rollCount = payload.rollCount,
-		level = payload.level,
+		level     = payload.level,
+		stats     = payload.stats,
 	})
 end)
