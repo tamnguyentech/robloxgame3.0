@@ -257,6 +257,9 @@ local function serializeCardStates(cardStates, now)
 		if type(sb) == "table" then
 			statBlockOut = shallowCopyStatBlock(sb)
 		end
+		local debuffPct = tonumber(state.outgoingAttackDebuffPercent) or 0
+		local debuffUntil = tonumber(state.outgoingAttackDebuffUntil) or 0
+		local debuffRem = (debuffUntil > currentNow) and (debuffUntil - currentNow) or 0
 		table.insert(out, {
 			slotIndex = state.slotIndex,
 			cardId = state.cardId,
@@ -266,6 +269,8 @@ local function serializeCardStates(cardStates, now)
 			health = state.health,
 			isAlive = state.health > 0,
 			statBlock = statBlockOut,
+			outgoingAttackDebuffPercent = debuffPct,
+			outgoingAttackDebuffRemainingSec = debuffRem,
 		})
 	end
 	return out
@@ -410,6 +415,7 @@ local function runCombatLoop(session)
 						local target = defenders[math.random(1, #defenders)]
 						local rawDamage = CombatFormulas.GetEffectiveAttack(attacker, now)
 						local hitResult = DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
+						session.hitSeq = (session.hitSeq or 0) + 1
 						table.insert(attacksThisTick, {
 							attackerUserId = session.playerBUserId,
 							attackerSlotIndex = attacker.slotIndex,
@@ -420,6 +426,7 @@ local function runCombatLoop(session)
 							isCrit = hitResult.isCrit,
 							isDodged = hitResult.isDodged,
 							absorbed = hitResult.absorbed,
+							hitSeq = session.hitSeq,
 						})
 						lastHitByTargetKey[tostring(session.playerAUserId) .. ":" .. tostring(target.slotIndex)] = attacker
 					end
@@ -500,6 +507,7 @@ local function createSession(playerA, playerB)
 			[playerA.UserId] = false,
 			[playerB.UserId] = false,
 		},
+		hitSeq = 0,
 		cardStatesByUserId = {
 			[playerA.UserId] = {},
 			[playerB.UserId] = {},

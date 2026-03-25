@@ -14,7 +14,7 @@ local HoloFoilController = require(script.Parent.ui.effects:WaitForChild("HoloFo
 local RainbowBorderStroke = require(script.Parent.ui.effects:WaitForChild("RainbowBorderStroke"))
 local ClientStateManager = require(script.Parent.core:WaitForChild("ClientStateManager"))
 local DeviceContext = require(script.Parent.core:WaitForChild("DeviceContext"))
-local DamageNumberView = require(script.Parent.ui:WaitForChild("DamageNumberView"))
+local DamagePopupManager = require(script.Parent.ui:WaitForChild("DamagePopupManager"))
 -- PvE enemy card (NPC) hit feedback
 -- Removed unused cardArtFolder assignment
 
@@ -425,6 +425,9 @@ local uiState = {
 	exitButton = nil,
 	deckCardsById = {},
 	deckCardBySlot = {},
+	npcDrDebuffEndClock = nil,
+	npcDrDebuffPercent = nil,
+	npcDrDebuffHbConn = nil,
 }
 
 local function clearDeckCardMappings()
@@ -577,6 +580,36 @@ local function createBattleGui(payload)
 	npcHint.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 	npcHint.TextStrokeTransparency = 0.3
 	npcHint.Parent = npcEnemyCard
+
+	local npcDrBar = Instance.new("Frame")
+	npcDrBar.Name = "NpcOutgoingDrDebuffBar"
+	npcDrBar.Visible = false
+	npcDrBar.Size = UDim2.new(1, -16, 0, 30)
+	npcDrBar.Position = UDim2.new(0, 8, 0, 102)
+	npcDrBar.BackgroundColor3 = Color3.fromRGB(48, 26, 68)
+	npcDrBar.BackgroundTransparency = 0.1
+	npcDrBar.BorderSizePixel = 0
+	npcDrBar.ZIndex = 18
+	npcDrBar.Parent = npcEnemyCard
+	local npcDrCorner = Instance.new("UICorner")
+	npcDrCorner.CornerRadius = UDim.new(0, 8)
+	npcDrCorner.Parent = npcDrBar
+	local npcDrStroke = Instance.new("UIStroke")
+	npcDrStroke.Thickness = 1.5
+	npcDrStroke.Color = Color3.fromRGB(190, 140, 255)
+	npcDrStroke.Transparency = 0.25
+	npcDrStroke.Parent = npcDrBar
+	local npcDrText = Instance.new("TextLabel")
+	npcDrText.Name = "DrText"
+	npcDrText.Size = UDim2.fromScale(1, 1)
+	npcDrText.BackgroundTransparency = 1
+	npcDrText.Font = Enum.Font.GothamBold
+	npcDrText.TextSize = 16
+	npcDrText.TextColor3 = Color3.fromRGB(245, 210, 255)
+	npcDrText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	npcDrText.TextStrokeTransparency = 0.35
+	npcDrText.Text = "DR 10% · 0.0s"
+	npcDrText.Parent = npcDrBar
 
 	local deckRow = Instance.new("Frame")
 	deckRow.Name = "DeckRow"
@@ -1470,6 +1503,9 @@ local function getAbilityEffectStyle(effectType)
 	if effectType == "TeamAttackDamageBoost" then
 		return Color3.fromRGB(255, 154, 76), "ATK DMG+"
 	end
+	if effectType == "EnemyPartyAttackDown" then
+		return Color3.fromRGB(190, 130, 255), "ATK DOWN"
+	end
 	return Color3.fromRGB(220, 220, 220), "BUFF"
 end
 
@@ -1847,6 +1883,14 @@ local function playAbilityEvents(payload)
 			if caster then
 				playAbilityPulse(caster, color, abilityEvent.effectType)
 				showAbilityPopup(caster, color, text)
+			end
+			if abilityEvent.effectType == "EnemyPartyAttackDown" then
+				local npc = uiState.npcEnemyCardFrame
+				if npc and npc.Parent then
+					playAbilityPulse(npc, color, abilityEvent.effectType)
+				end
+			end
+			if caster then
 				-- Blood animation sequence for TestBattleCard
 				if abilityEvent.effectType == "Fireball" and caster:GetAttribute("CardId") == "TestBattleCard" then
 					local VFXController = require(script.Parent.vfx.VFXController)
@@ -1927,7 +1971,63 @@ local function showBattleUiLoading(invitePayload)
 	end
 end
 
+local function stopNpcOutgoingDrDebuffUi()
+	if uiState.npcDrDebuffHbConn then
+		uiState.npcDrDebuffHbConn:Disconnect()
+		uiState.npcDrDebuffHbConn = nil
+	end
+	uiState.npcDrDebuffEndClock = nil
+	uiState.npcDrDebuffPercent = nil
+	local card = uiState.npcEnemyCardFrame
+	local bar = card and card:FindFirstChild("NpcOutgoingDrDebuffBar")
+	if bar then
+		bar.Visible = false
+	end
+end
+
+local function syncNpcOutgoingDrDebuffFromPayload(payload)
+	local bar = uiState.npcEnemyCardFrame and uiState.npcEnemyCardFrame:FindFirstChild("NpcOutgoingDrDebuffBar")
+	local lbl = bar and bar:FindFirstChild("DrText")
+	if not (bar and lbl) then
+		return
+	end
+	local rem = tonumber(payload and payload.npcOutgoingAttackDebuffRemainingSec) or 0
+	local pct = tonumber(payload and payload.npcOutgoingAttackDebuffPercent) or 0
+	if rem > 0 and pct > 0 then
+		uiState.npcDrDebuffEndClock = os.clock() + rem
+		uiState.npcDrDebuffPercent = pct
+		bar.Visible = true
+		local pctDisp = math.floor(pct * 100 + 0.5)
+		lbl.Text = string.format("DR %d%% · %.1fs", pctDisp, rem)
+		if not uiState.npcDrDebuffHbConn then
+			uiState.npcDrDebuffHbConn = RunService.Heartbeat:Connect(function()
+				if not bar.Parent then
+					return
+				end
+				if not uiState.npcDrDebuffEndClock or not uiState.npcDrDebuffPercent then
+					bar.Visible = false
+					return
+				end
+				local left = math.max(0, uiState.npcDrDebuffEndClock - os.clock())
+				if left <= 0.05 then
+					bar.Visible = false
+					uiState.npcDrDebuffEndClock = nil
+					return
+				end
+				local p = math.floor(uiState.npcDrDebuffPercent * 100 + 0.5)
+				lbl.Text = string.format("DR %d%% · %.1fs", p, left)
+			end)
+		end
+	else
+		stopNpcOutgoingDrDebuffUi()
+	end
+end
+
 local function hideBattleUi()
+	stopNpcOutgoingDrDebuffUi()
+	if uiState.sessionId then
+		DamagePopupManager.ClearSession(uiState.sessionId)
+	end
 	if uiState.gui then
 		uiState.gui.Enabled = false
 	end
@@ -2031,20 +2131,38 @@ battleStateEvent.OnClientEvent:Connect(function(payload)
 	if payload.eventType == BattleProtocol.EventType.NpcState then
 		setNpcEnemyHp(payload)
 		setNpcEnemyHint(payload)
+		syncNpcOutgoingDrDebuffFromPayload(payload)
 		local dealtToNpc = tonumber(payload.dealtDamage) or 0
 		if dealtToNpc > 0 then
 			animateSingleDeckAttack(payload.attackerSlotIndex, payload.attackerCardId)
-			-- Defer one frame: layout/AbsolutePosition stable; parent to Root so DeckRow does not cover the text.
-			task.defer(function()
-				local root = uiState.rootFrame
-				local npcCard = uiState.npcEnemyCardFrame
-				if root and root.Parent and npcCard and npcCard.Parent then
-					DamageNumberView.showFloatingOnRoot(root, npcCard, dealtToNpc, "PlayerToNpc")
-				end
-			end)
+			local root = uiState.rootFrame
+			local npcCard = uiState.npcEnemyCardFrame
+			if root and root.Parent and npcCard and npcCard.Parent then
+				local cat = DamagePopupManager.MapCategory(dealtToNpc, payload.isCrit, payload.isDodged, payload.absorbed)
+				DamagePopupManager.EnqueueFloating({
+					sessionId = payload.sessionId,
+					targetKey = "pve_npc",
+					rootFrame = root,
+					targetGui = npcCard,
+					amount = dealtToNpc,
+					absorbed = payload.absorbed,
+					category = cat,
+					contextKind = "PlayerToNpc",
+					sequence = tonumber(payload.hitSeq) or 0,
+				})
+			end
 		end
 		local dealtFromNpc = tonumber(payload.npcAttackDealtDamage) or 0
-		if dealtFromNpc > 0 then
+		local npcCat = DamagePopupManager.MapCategory(
+			dealtFromNpc,
+			payload.npcAttackIsCrit,
+			payload.npcAttackIsDodged,
+			payload.npcAttackAbsorbed
+		)
+		local showNpcHit = npcCat == "Dodge"
+			or npcCat == "ShieldAbsorb"
+			or dealtFromNpc > 0
+		if showNpcHit then
 			animateNpcEnemyAttack(payload.npcAttackTargetSlotIndex, payload.npcAttackTargetCardId)
 			local targetCard = nil
 			if type(payload.npcAttackTargetSlotIndex) == "number" then
@@ -2057,13 +2175,21 @@ battleStateEvent.OnClientEvent:Connect(function(payload)
 				end
 			end
 			if targetCard then
-				local dmg = dealtFromNpc
-				task.defer(function()
-					local root = uiState.rootFrame
-					if root and root.Parent and targetCard and targetCard.Parent then
-						DamageNumberView.showFloatingOnRoot(root, targetCard, dmg, "NpcToPlayer")
-					end
-				end)
+				local root = uiState.rootFrame
+				if root and root.Parent and targetCard.Parent then
+					local slotKey = type(payload.npcAttackTargetSlotIndex) == "number" and payload.npcAttackTargetSlotIndex or 0
+					DamagePopupManager.EnqueueFloating({
+						sessionId = payload.sessionId,
+						targetKey = "pve_slot_" .. tostring(slotKey),
+						rootFrame = root,
+						targetGui = targetCard,
+						amount = dealtFromNpc,
+						absorbed = payload.npcAttackAbsorbed,
+						category = npcCat,
+						contextKind = "NpcToPlayer",
+						sequence = tonumber(payload.hitSeq) or 0,
+					})
+				end
 			end
 		end
 		applyPlayerCardStates(payload.playerCardStates)

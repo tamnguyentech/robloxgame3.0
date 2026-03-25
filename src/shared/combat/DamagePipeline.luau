@@ -101,7 +101,11 @@ function DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
 		return result
 	end
 
+	-- PvE (and any pooled target): no RuntimeCardState target — damage applied by caller (e.g. ApplyDamageToNpc).
 	result.finalDamage = amount
+	if amount > 0 then
+		CombatEventBus.Fire("OnHit", result)
+	end
 	return result
 end
 

@@ -384,6 +384,8 @@ end
 
 local function sendNpcState(player, session, payload)
 	local out = payload or {}
+	session.hitSeq = (session.hitSeq or 0) + 1
+	out.hitSeq = session.hitSeq
 	out.eventType = BattleProtocol.EventType.NpcState
 	out.sessionId = session.sessionId
 	out.npcId = session.npcId
@@ -394,6 +396,10 @@ local function sendNpcState(player, session, payload)
 	out.npcHealth = session.npcHealth
 	out.npcAttack = session.npcAttack
 	out.nextAttackInSeconds = DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS
+	local now = os.clock()
+	out.npcOutgoingAttackDebuffPercent = tonumber(session.npcOutgoingAttackDebuffPercent) or 0
+	local untilT = tonumber(session.npcOutgoingAttackDebuffUntil) or 0
+	out.npcOutgoingAttackDebuffRemainingSec = (untilT > now) and (untilT - now) or 0
 	out.playerCardStates = buildPlayerCardStatePayload(session)
 	sendState(player, out)
 end
@@ -521,11 +527,19 @@ local function runNpcAttackLoop(player, session)
 					}
 					if target.health <= 0 and not target.deathNotified then
 						target.deathNotified = true
+						local killer = lastHitBySlot[target.slotIndex]
 						CombatEventBus.Fire("OnDeath", {
 							session = session,
 							unit = target,
-							killer = lastHitBySlot[target.slotIndex],
+							killer = killer,
 						})
+						if killer then
+							CombatEventBus.Fire("OnKill", {
+								session = session,
+								attacker = killer,
+								victim = target,
+							})
+						end
 					end
 					stateSentThisTick = true
 				end
@@ -583,6 +597,7 @@ local function startSession(player, record)
 		npcOutgoingAttackDebuffPercent = 0,
 		npcOutgoingAttackDebuffUntil = 0,
 		npcDeathNotified = false,
+		hitSeq = 0,
 		playerDeck = {},
 		playerCardStates = {},
 		nextNpcAttackAt = os.clock() + 1.5,

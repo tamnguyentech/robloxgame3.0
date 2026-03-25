@@ -53,7 +53,8 @@ Source of truth: [default.project.json](../default.project.json).
 | `ui/ParallaxNameLabel` | Card name display helper |
 | `ui/BoosterOpenSequence` | Booster opening animation sequence |
 | `ui/styles/StyleConfig` | Shared style tokens (includes `DamageNumbers` for combat popups) |
-| `ui/DamageNumberView` | Config-driven floating damage numbers (PvE + PvP) |
+| `ui/DamagePopupManager` | Combat floating numbers: per-target scatter, Z-order, caps; uses `StyleConfig.DamageNumbers` + `DamageCategoryOverrides` |
+| `ui/DamageNumberView` | Thin legacy facade → `DamagePopupManager` |
 | `ui/groups/DecksLayer` | Deck layer grouping |
 | `ui/effects/HoloFoilController` | Foil overlays (Silver, Gold, Diamond, Cosmic, Corrupted) |
 | `ui/effects/LightningOverlayController` | Lightning-style overlay for special cards |

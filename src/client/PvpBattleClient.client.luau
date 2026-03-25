@@ -15,7 +15,7 @@ local HoloFoilController = require(script.Parent.ui.effects:WaitForChild("HoloFo
 local RainbowBorderStroke = require(script.Parent.ui.effects:WaitForChild("RainbowBorderStroke"))
 local ClientStateManager = require(script.Parent.core:WaitForChild("ClientStateManager"))
 local DeviceContext = require(script.Parent.core:WaitForChild("DeviceContext"))
-local DamageNumberView = require(script.Parent.ui:WaitForChild("DamageNumberView"))
+local DamagePopupManager = require(script.Parent.ui:WaitForChild("DamagePopupManager"))
 local cardArtFolder      = ReplicatedStorage:WaitForChild("CardArt")
 
 local remotesFolder = ReplicatedStorage:WaitForChild(PvpProtocol.Remotes.FolderName)
@@ -1229,6 +1229,36 @@ local function createDeckCardView(state)
 	cardBorderStroke.Transparency = 0.22
 	cardBorderStroke.Parent = frame
 
+	local drBar = Instance.new("Frame")
+	drBar.Name = "OutgoingDrDebuffBar"
+	drBar.Visible = false
+	drBar.Size = UDim2.new(1, -10, 0, 22)
+	drBar.Position = UDim2.new(0, 5, 0, 6)
+	drBar.BackgroundColor3 = Color3.fromRGB(48, 26, 68)
+	drBar.BackgroundTransparency = 0.15
+	drBar.BorderSizePixel = 0
+	drBar.ZIndex = 12
+	drBar.Parent = frame
+	local drBarCorner = Instance.new("UICorner")
+	drBarCorner.CornerRadius = UDim.new(0, 6)
+	drBarCorner.Parent = drBar
+	local drBarStroke = Instance.new("UIStroke")
+	drBarStroke.Thickness = 1
+	drBarStroke.Color = Color3.fromRGB(180, 130, 255)
+	drBarStroke.Transparency = 0.35
+	drBarStroke.Parent = drBar
+	local drText = Instance.new("TextLabel")
+	drText.Name = "DrText"
+	drText.Size = UDim2.fromScale(1, 1)
+	drText.BackgroundTransparency = 1
+	drText.Font = Enum.Font.GothamBold
+	drText.TextSize = 13
+	drText.TextColor3 = Color3.fromRGB(235, 200, 255)
+	drText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	drText.TextStrokeTransparency = 0.4
+	drText.Text = "DR 10% · 0.0s"
+	drText.Parent = drBar
+
 	return frame
 end
 
@@ -1306,6 +1336,20 @@ local function renderPanel(panel, titleText, states)
 				hpLabel.Text = string.format("HP %s/%s", CardDatabase.FormatAttack(hp), CardDatabase.FormatAttack(maxHp))
 			end
 
+			local drBar = card:FindFirstChild("OutgoingDrDebuffBar")
+			local drText = drBar and drBar:FindFirstChild("DrText")
+			if drBar and drText then
+				local rem = tonumber(state.outgoingAttackDebuffRemainingSec) or 0
+				local pct = tonumber(state.outgoingAttackDebuffPercent) or 0
+				if rem > 0 and pct > 0 then
+					drBar.Visible = true
+					local pctDisp = math.floor(pct * 100 + 0.5)
+					drText.Text = string.format("DR %d%% · %.1fs", pctDisp, rem)
+				else
+					drBar.Visible = false
+				end
+			end
+
 			if hp > 0 then
 				if card:GetAttribute("DeathAnimated") then
 					card:SetAttribute("DeathAnimated", false)
@@ -1358,8 +1402,8 @@ local function animateRowPulse(panel, slotIndex, hitColor)
 	end)
 end
 
-local function showDamagePopup(panel, slotIndex, damage)
-	if not panel then
+local function showDamagePopup(panel, slotIndex, attack, staggerDelay, targetKeyPrefix)
+	if not panel or type(attack) ~= "table" then
 		return
 	end
 	local cardRow = panel:FindFirstChild("CardRow")
@@ -1367,7 +1411,23 @@ local function showDamagePopup(panel, slotIndex, damage)
 	if not (card and card:IsA("Frame")) then
 		return
 	end
-	DamageNumberView.show(card, damage, "PvpHit")
+	local dmg = tonumber(attack.damage) or 0
+	local cat = DamagePopupManager.MapCategory(dmg, attack.isCrit, attack.isDodged, attack.absorbed)
+	local show = cat == "Dodge" or cat == "ShieldAbsorb" or dmg > 0
+	if not show then
+		return
+	end
+	DamagePopupManager.EnqueueOnCard({
+		sessionId = uiState.sessionId,
+		targetKey = tostring(targetKeyPrefix) .. "_" .. tostring(slotIndex),
+		cardFrame = card,
+		amount = dmg,
+		absorbed = attack.absorbed,
+		category = cat,
+		contextKind = "PvpHit",
+		sequence = tonumber(attack.hitSeq) or 0,
+		staggerDelay = tonumber(staggerDelay) or 0,
+	})
 end
 
 local function getAbilityEffectStyle(effectType)
@@ -1379,6 +1439,9 @@ local function getAbilityEffectStyle(effectType)
 	end
 	if effectType == "TeamAttackDamageBoost" then
 		return Color3.fromRGB(255, 154, 76), "ATK DMG+"
+	end
+	if effectType == "EnemyPartyAttackDown" then
+		return Color3.fromRGB(190, 130, 255), "ATK DOWN"
 	end
 	return Color3.fromRGB(220, 220, 220), "BUFF"
 end
@@ -1398,6 +1461,9 @@ local function getBuffNoticeText(abilityEvent, isAlly)
 	end
 	if effectType == "TeamAttackDamageBoost" then
 		return string.format("%s BUFF: +%d%% ATK DMG (%.1fs)", sideLabel, magnitudePercent, durationSeconds)
+	end
+	if effectType == "EnemyPartyAttackDown" then
+		return string.format("Enemy ATK -%d%% (%.1fs)", magnitudePercent, durationSeconds)
 	end
 
 	return nil
@@ -1787,8 +1853,12 @@ local function playAbilityEvents(payload, leftPanel, rightPanel, myUserId, enemy
 				playAbilitySound(abilityEvent.effectType)
 				playAbilityPulse(casterPanel, abilityEvent.casterSlotIndex, color, abilityEvent.effectType)
 				showAbilityPopup(casterPanel, abilityEvent.casterSlotIndex, color, text)
+				local targetPanel = casterPanel
+				if abilityEvent.effectType == "EnemyPartyAttackDown" then
+					targetPanel = (casterPanel == leftPanel) and rightPanel or leftPanel
+				end
 				for _, slotIndex in ipairs(abilityEvent.targetSlotIndices or {}) do
-					playAbilityPulse(casterPanel, slotIndex, color, abilityEvent.effectType)
+					playAbilityPulse(targetPanel, slotIndex, color, abilityEvent.effectType)
 				end
 			end
 			if noticeText then
@@ -1928,18 +1998,19 @@ sessionEvent.OnClientEvent:Connect(function(payload)
 		if type(payload.attacks) == "table" then
 			local myUserId = player.UserId
 			local enemyUserId = (payload.playerAUserId == myUserId) and payload.playerBUserId or payload.playerAUserId
-			for _, attack in ipairs(payload.attacks) do
-				local damage = math.max(1, math.floor(tonumber(attack.damage) or 1))
+			local stagger = DamagePopupManager.STAGGER_SEC
+			for i, attack in ipairs(payload.attacks) do
+				local delay = (i - 1) * stagger
 				if attack.attackerUserId == myUserId then
 					animateAttackDash(leftPanel, attack.attackerSlotIndex, rightPanel, attack.targetSlotIndex)
 					animateRowPulse(leftPanel, attack.attackerSlotIndex, Color3.fromRGB(38, 122, 76))
 					animateRowPulse(rightPanel, attack.targetSlotIndex, Color3.fromRGB(148, 54, 54))
-					showDamagePopup(rightPanel, attack.targetSlotIndex, damage)
+					showDamagePopup(rightPanel, attack.targetSlotIndex, attack, delay, "pvpR")
 				elseif attack.attackerUserId == enemyUserId then
 					animateAttackDash(rightPanel, attack.attackerSlotIndex, leftPanel, attack.targetSlotIndex)
 					animateRowPulse(rightPanel, attack.attackerSlotIndex, Color3.fromRGB(38, 122, 76))
 					animateRowPulse(leftPanel, attack.targetSlotIndex, Color3.fromRGB(148, 54, 54))
-					showDamagePopup(leftPanel, attack.targetSlotIndex, damage)
+					showDamagePopup(leftPanel, attack.targetSlotIndex, attack, delay, "pvpL")
 				end
 			end
 			playAbilityEvents(payload, leftPanel, rightPanel, myUserId, enemyUserId)
@@ -1954,6 +2025,9 @@ sessionEvent.OnClientEvent:Connect(function(payload)
 	if eventType == PvpProtocol.EventType.SessionEnded then
 		if uiState.sessionId and payload.sessionId and uiState.sessionId ~= payload.sessionId then
 			return
+		end
+		if uiState.sessionId then
+			DamagePopupManager.ClearSession(uiState.sessionId)
 		end
 		uiState.sessionId = nil
 		local reason = tostring(payload.reason or "Duel ended")
