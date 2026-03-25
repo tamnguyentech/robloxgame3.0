@@ -428,6 +428,9 @@ local uiState = {
 	npcDrDebuffEndClock = nil,
 	npcDrDebuffPercent = nil,
 	npcDrDebuffHbConn = nil,
+	speedBoostEndBySlot = {},
+	speedBoostMagBySlot = {},
+	speedBoostHbConn = nil,
 }
 
 local function clearDeckCardMappings()
@@ -785,9 +788,39 @@ local function createDeckCardView(cardId)
 	stroke.Transparency = 0.24
 	stroke.Parent = frame
 
+	local spdBar = Instance.new("Frame")
+	spdBar.Name = "AtkSpeedBuffBar"
+	spdBar.Visible = false
+	spdBar.Size = UDim2.new(1, -12, 0, 22)
+	spdBar.Position = UDim2.new(0, 6, 0, 4)
+	spdBar.BackgroundColor3 = Color3.fromRGB(22, 48, 72)
+	spdBar.BackgroundTransparency = 0.08
+	spdBar.BorderSizePixel = 0
+	spdBar.ZIndex = 6
+	spdBar.Parent = frame
+	local spdCorner = Instance.new("UICorner")
+	spdCorner.CornerRadius = UDim.new(0, 7)
+	spdCorner.Parent = spdBar
+	local spdStroke = Instance.new("UIStroke")
+	spdStroke.Thickness = 1
+	spdStroke.Color = Color3.fromRGB(100, 190, 255)
+	spdStroke.Transparency = 0.25
+	spdStroke.Parent = spdBar
+	local spdText = Instance.new("TextLabel")
+	spdText.Name = "SpdText"
+	spdText.Size = UDim2.fromScale(1, 1)
+	spdText.BackgroundTransparency = 1
+	spdText.Font = Enum.Font.GothamBold
+	spdText.TextSize = 13
+	spdText.TextColor3 = Color3.fromRGB(160, 225, 255)
+	spdText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	spdText.TextStrokeTransparency = 0.35
+	spdText.Text = "ATK SPD +0% · 0.0s"
+	spdText.Parent = spdBar
+
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Size = UDim2.new(1, -10, 0, 66)
-	nameLabel.Position = UDim2.fromOffset(5, 2)
+	nameLabel.Position = UDim2.fromOffset(5, 28)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.TextWrapped = true
 	nameLabel.Text = data and data.Name or tostring(cardId)
@@ -967,6 +1000,76 @@ local function playCardDeathAnimation(cardView)
 	end)
 end
 
+local function stopDeckSpeedBuffUi()
+	if uiState.speedBoostHbConn then
+		uiState.speedBoostHbConn:Disconnect()
+		uiState.speedBoostHbConn = nil
+	end
+	uiState.speedBoostEndBySlot = {}
+	uiState.speedBoostMagBySlot = {}
+	for s = 1, 5 do
+		local cv = uiState.deckCardBySlot[s]
+		local b = cv and cv:FindFirstChild("AtkSpeedBuffBar")
+		if b then
+			b.Visible = false
+		end
+	end
+end
+
+local function tickDeckSpeedBuffLabels()
+	for slotIndex, endClock in pairs(uiState.speedBoostEndBySlot) do
+		local cardView = uiState.deckCardBySlot[slotIndex]
+		local bar = cardView and cardView:FindFirstChild("AtkSpeedBuffBar")
+		local txt = bar and bar:FindFirstChild("SpdText")
+		if not (bar and txt and bar.Parent) then
+			uiState.speedBoostEndBySlot[slotIndex] = nil
+			uiState.speedBoostMagBySlot[slotIndex] = nil
+		else
+			local left = math.max(0, (tonumber(endClock) or 0) - os.clock())
+			local mag = tonumber(uiState.speedBoostMagBySlot[slotIndex]) or 0
+			if left <= 0.05 or mag <= 0 then
+				bar.Visible = false
+				uiState.speedBoostEndBySlot[slotIndex] = nil
+				uiState.speedBoostMagBySlot[slotIndex] = nil
+			else
+				local pct = math.floor(mag * 100 + 0.5)
+				txt.Text = string.format("ATK SPD +%d%% · %.1fs", pct, left)
+			end
+		end
+	end
+end
+
+local function ensureDeckSpeedBuffHeartbeat()
+	if uiState.speedBoostHbConn then
+		return
+	end
+	uiState.speedBoostHbConn = RunService.Heartbeat:Connect(function()
+		tickDeckSpeedBuffLabels()
+	end)
+end
+
+local function syncDeckSpeedBuffFromCardState(state, slotIndex, cardView)
+	local spdBar = cardView:FindFirstChild("AtkSpeedBuffBar")
+	local spdText = spdBar and spdBar:FindFirstChild("SpdText")
+	if not (spdBar and spdText) then
+		return
+	end
+	local rem = tonumber(state.speedBoostRemainingSec) or 0
+	local mag = tonumber(state.speedBoostMagnitude) or 0
+	if rem > 0 and mag > 0 then
+		uiState.speedBoostEndBySlot[slotIndex] = os.clock() + rem
+		uiState.speedBoostMagBySlot[slotIndex] = mag
+		spdBar.Visible = true
+		local pct = math.floor(mag * 100 + 0.5)
+		spdText.Text = string.format("ATK SPD +%d%% · %.1fs", pct, rem)
+		ensureDeckSpeedBuffHeartbeat()
+	else
+		uiState.speedBoostEndBySlot[slotIndex] = nil
+		uiState.speedBoostMagBySlot[slotIndex] = nil
+		spdBar.Visible = false
+	end
+end
+
 local function applyPlayerCardStates(playerCardStates)
 	if type(playerCardStates) ~= "table" then
 		return
@@ -991,7 +1094,19 @@ local function applyPlayerCardStates(playerCardStates)
 				hpLabel.Text = string.format("HP %s/%s", CardDatabase.FormatAttack(hp), CardDatabase.FormatAttack(maxHp))
 			end
 
+			if type(slotIndex) == "number" then
+				syncDeckSpeedBuffFromCardState(state, slotIndex, cardView)
+			end
+
 			if not alive then
+				if type(slotIndex) == "number" then
+					uiState.speedBoostEndBySlot[slotIndex] = nil
+					uiState.speedBoostMagBySlot[slotIndex] = nil
+					local sb = cardView:FindFirstChild("AtkSpeedBuffBar")
+					if sb then
+						sb.Visible = false
+					end
+				end
 				removeCardViewFromMappings(cardView)
 				if cardView:GetAttribute("IsAnimatingAttack") then
 					cardView:SetAttribute("PendingDeath", true)
@@ -2025,6 +2140,7 @@ end
 
 local function hideBattleUi()
 	stopNpcOutgoingDrDebuffUi()
+	stopDeckSpeedBuffUi()
 	if uiState.sessionId then
 		DamagePopupManager.ClearSession(uiState.sessionId)
 	end

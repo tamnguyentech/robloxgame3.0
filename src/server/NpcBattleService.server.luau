@@ -322,6 +322,9 @@ local function buildPlayerCardStatePayload(session)
 		if type(sb) == "table" then
 			statBlockOut = shallowCopyStatBlock(sb)
 		end
+		local spdUntil = tonumber(state.speedBoostUntil) or 0
+		local spdMag = tonumber(state.speedBoostMagnitude) or 0
+		local spdRem = (spdUntil > now and spdMag > 0) and (spdUntil - now) or 0
 		table.insert(payload, {
 			slotIndex = state.slotIndex,
 			cardId = state.cardId,
@@ -331,6 +334,8 @@ local function buildPlayerCardStatePayload(session)
 			health = state.health,
 			isAlive = state.health > 0,
 			statBlock = statBlockOut,
+			speedBoostMagnitude = spdMag,
+			speedBoostRemainingSec = spdRem,
 		})
 	end
 	return payload

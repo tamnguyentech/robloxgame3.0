@@ -1259,6 +1259,36 @@ local function createDeckCardView(state)
 	drText.Text = "DR 10% · 0.0s"
 	drText.Parent = drBar
 
+	local spdBar = Instance.new("Frame")
+	spdBar.Name = "AtkSpeedBuffBar"
+	spdBar.Visible = false
+	spdBar.Size = UDim2.new(1, -10, 0, 22)
+	spdBar.Position = UDim2.new(0, 5, 0, 6)
+	spdBar.BackgroundColor3 = Color3.fromRGB(22, 48, 72)
+	spdBar.BackgroundTransparency = 0.12
+	spdBar.BorderSizePixel = 0
+	spdBar.ZIndex = 13
+	spdBar.Parent = frame
+	local spdBarCorner = Instance.new("UICorner")
+	spdBarCorner.CornerRadius = UDim.new(0, 6)
+	spdBarCorner.Parent = spdBar
+	local spdBarStroke = Instance.new("UIStroke")
+	spdBarStroke.Thickness = 1
+	spdBarStroke.Color = Color3.fromRGB(100, 190, 255)
+	spdBarStroke.Transparency = 0.3
+	spdBarStroke.Parent = spdBar
+	local spdText = Instance.new("TextLabel")
+	spdText.Name = "SpdText"
+	spdText.Size = UDim2.fromScale(1, 1)
+	spdText.BackgroundTransparency = 1
+	spdText.Font = Enum.Font.GothamBold
+	spdText.TextSize = 13
+	spdText.TextColor3 = Color3.fromRGB(160, 225, 255)
+	spdText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	spdText.TextStrokeTransparency = 0.4
+	spdText.Text = "ATK SPD +0% · 0.0s"
+	spdText.Parent = spdBar
+
 	return frame
 end
 
@@ -1338,15 +1368,32 @@ local function renderPanel(panel, titleText, states)
 
 			local drBar = card:FindFirstChild("OutgoingDrDebuffBar")
 			local drText = drBar and drBar:FindFirstChild("DrText")
+			local drVisible = false
 			if drBar and drText then
 				local rem = tonumber(state.outgoingAttackDebuffRemainingSec) or 0
 				local pct = tonumber(state.outgoingAttackDebuffPercent) or 0
 				if rem > 0 and pct > 0 then
 					drBar.Visible = true
+					drVisible = true
 					local pctDisp = math.floor(pct * 100 + 0.5)
 					drText.Text = string.format("DR %d%% · %.1fs", pctDisp, rem)
 				else
 					drBar.Visible = false
+				end
+			end
+
+			local spdBar = card:FindFirstChild("AtkSpeedBuffBar")
+			local spdText = spdBar and spdBar:FindFirstChild("SpdText")
+			if spdBar and spdText then
+				local spdRem = tonumber(state.speedBoostRemainingSec) or 0
+				local spdMag = tonumber(state.speedBoostMagnitude) or 0
+				if spdRem > 0 and spdMag > 0 then
+					spdBar.Visible = true
+					local spdPct = math.floor(spdMag * 100 + 0.5)
+					spdText.Text = string.format("ATK SPD +%d%% · %.1fs", spdPct, spdRem)
+					spdBar.Position = drVisible and UDim2.new(0, 5, 0, 30) or UDim2.new(0, 5, 0, 6)
+				else
+					spdBar.Visible = false
 				end
 			end
 

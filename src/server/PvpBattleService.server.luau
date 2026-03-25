@@ -260,6 +260,9 @@ local function serializeCardStates(cardStates, now)
 		local debuffPct = tonumber(state.outgoingAttackDebuffPercent) or 0
 		local debuffUntil = tonumber(state.outgoingAttackDebuffUntil) or 0
 		local debuffRem = (debuffUntil > currentNow) and (debuffUntil - currentNow) or 0
+		local spdUntil = tonumber(state.speedBoostUntil) or 0
+		local spdMag = tonumber(state.speedBoostMagnitude) or 0
+		local spdRem = (spdUntil > currentNow and spdMag > 0) and (spdUntil - currentNow) or 0
 		table.insert(out, {
 			slotIndex = state.slotIndex,
 			cardId = state.cardId,
@@ -271,6 +274,8 @@ local function serializeCardStates(cardStates, now)
 			statBlock = statBlockOut,
 			outgoingAttackDebuffPercent = debuffPct,
 			outgoingAttackDebuffRemainingSec = debuffRem,
+			speedBoostMagnitude = spdMag,
+			speedBoostRemainingSec = spdRem,
 		})
 	end
 	return out
