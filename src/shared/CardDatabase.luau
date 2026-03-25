@@ -30,18 +30,6 @@ local CardAbilityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitF
 local CardDatabase = {}
 
 local cardData = {
-    ["BeliodusX"] = {
-        Name = "BeliodusX",
-        Attack = 1200000000,
-        Health = 10800000000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Seven Deadly Sins",
-        Rarity = "God",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://77873660521351",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-    },
     ["lightyagami"] = {
         Name = "Death Writer",
         Attack = 100000,
@@ -53,7 +41,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://94327015801389",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Uncommon custom card.",
+		Description = "After Death Writer attacks an enemy, he has a 10% chance of learning their true name causing his attacks to do 150% more damage against them.",
     },
     ["johnathanjoestar"] = {
         Name = "Hamon Gentleman",
@@ -66,7 +54,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://84035880933924",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Uncommon custom card.",
+		Description = "When the battle starts, Hamon Gentleman launchs a barrage of punches that does 50% of his damage to 1 enemy and makes them take 25% reduced healing for 3 turns.",
     },
     ["armin"] = {
         Name = "Genius Scout",
@@ -79,7 +67,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://115526881157290",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Uncommon custom card.",
+        Description = "Every ? seconds mark an enemy making them take 15% more damage.",
     },
     ["asta"] = {
         Name = "Manaless Wizard",
@@ -92,7 +80,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://112767549806462",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Uncommon custom card.",
+        Description = "When the battle starts, Asta inflicts seal on one enemy for ? seconds. Manaless Wizard takes 50% reduced damage from any cards with mage",
     },
     ["bojji"] = {
         Name = "Mirai",
@@ -105,7 +93,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://118551319885422",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Uncommon custom card.",
+        Description = "When the battle starts, the last ally gains 50% of this card's health.",
     },
     ["denji"] = {
         Name = "Women Seeking Hunter",
@@ -118,7 +106,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://111215871489552",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare custom card.",
+        Description = "At the start of the battle, buff self damage by 10% for each female in the party.",
     },
     ["edwardelric"] = {
         Name = "Metal Alchemist",
@@ -131,7 +119,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://139542750963805",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare custom card.",
+		Description = "After each attack, alternate between gaining 10% attack or health.",
     },
     ["gon"] = {
         Name = "Rookie Hunter",
@@ -144,7 +132,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://119477439205269",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare custom card.",
+		Description = "Rookie Hunter has a 33% chance for his attacks to do double damage.",
     },
     ["kiba"] = {
         Name = "Dog Breeding Ninja",
@@ -157,7 +145,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://75583669154514",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare custom card.",
+		Description = "This card's attacks are followed up by his dog for 20% damage.",
     },
     ["kidcoby"] = {
         Name = "Coward of Justice",
@@ -170,7 +158,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://74953934441998",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare custom card.",
+		Description = "When the battle starts, this card gains 5% stats of the strongest card in the party.",
     },
     ["killua"] = {
         Name = "Assassin Hunter",
@@ -183,10 +171,10 @@ local cardData = {
         ArtAssetId = "rbxassetid://73858850936933",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare custom card.",
+        Description = "This card dodges the first attack.",
     },
-    ["naruto"] = {
-        Name = "Knucklehead Ninja",
+    ["kirito"] = {
+        Name = "Black Swordsman",
         Attack = 27000,
         Health = 81000,
         AttackIntervalSeconds = 5.0,
@@ -196,7 +184,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://76654451871487",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare custom card.",
+		Description = "After every 2 attacks, this card unleash 3 hits for 50% attack.",
     },
     ["lisalisa"] = {
         Name = "Hamon Mentor",
@@ -209,7 +197,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://74695816890751",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare custom card.",
+		Description = "At the start of the battle, this card buff all allies health and attack by 10%.",
     },
     ["masterroshi"] = {
         Name = "Turtle Hermit",
@@ -222,7 +210,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://100086228347779",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare custom card.",
+        Description = "At the start of the battle, Turtle Hermit stuns one enemy for ? seconds.",
     },
     ["mob"] = {
         Name = "Restrained Esper",
@@ -235,7 +223,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://109730325430363",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Rare custom card.",
+        Description = "This card gains damage equal to missing health.",
     },
     ["mrsatan"] = {
         Name = "Martial Arts Champion",
@@ -248,7 +236,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://133628416601785",
         AbilityId = "WorldChampionsBluff",
         AbilityCooldownSeconds = 10,
-        Description = "Rare custom card.",
+        Description = "At the start of the battle, reduce the enemy party's damage by 10% for ? seconds.",
     },
     ["natsu"] = {
         Name = "Salamander",
@@ -261,7 +249,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://125732494372665",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+        Description = "This card's first attack burns 10% of the enemy's health.",
     },
     ["saibaman"] = {
         Name = "Explosive Plant",
@@ -274,7 +262,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://106682466467156",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+        Description = "On death, this card explodes doing 100% of its max health to the killer.",
     },
     ["sakura"] = {
         Name = "Pink Medical Ninja",
@@ -287,7 +275,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://84478360843205",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+        Description = "Instead of attacking, this card heals an injured ally for this card's damage + 5% of their health.",
     },
     ["blueslime"] = {
         Name = "Blue Slime",
@@ -300,7 +288,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://128109245961112",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+        Description = "Blue Slime takes 10% reduced damage.",
     },
     ["sungjinwoo"] = {
         Name = "F Rank Hunter",
@@ -313,7 +301,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://87343609974295",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "Every time this card gets attacked, he gains 10% health if he survives.",
     },
     ["yugi"] = {
         Name = "King of Games",
@@ -326,7 +314,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://125072644833143",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "After each attack, has a 25% chance to gain 10% stats.",
     },
     ["genya"] = {
         Name = "Demon Eating Swordsman",
@@ -339,7 +327,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://79714372400036",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+        Description = "When this card defeats an enemy, heal 20% of its health.",
     },
     ["luffy"] = {
         Name = "Straw Hat",
@@ -352,59 +340,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://86790998588928",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
-    },
-    ["arima"] = {
-        Name = "Aurarima",
-        Attack = 26000000,
-        Health = 130000000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Custom",
-        Rarity = "Legendary",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://124257683228455",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
-    },
-    ["supervegeta"] = {
-        Name = "Super Vegan",
-        Attack = 280000,
-        Health = 1400000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Custom",
-        Rarity = "Epic",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://81103831884990",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
-    },
-    ["majinbuu"] = {
-        Name = "King Bau",
-        Attack = 300000,
-        Health = 1500000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Custom",
-        Rarity = "Epic",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://76060963956133",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
-    },
-    ["cell"] = {
-        Name = "Ultimate Mitosis",
-        Attack = 320000,
-        Health = 1600000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Custom",
-        Rarity = "Epic",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://93094320882806",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+        Description = "At the start of the battle gain 25% stats.",
     },
     ["ichigo"] = {
         Name = "Substitute Shinigami",
@@ -417,7 +353,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://120615459234079",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "When below 50% health or less, become Hollow with 50% bonus damage. ",
     },
     ["KidNaruto"] = {
         Name = "Knucklehead Ninja (Kid)",
@@ -430,7 +366,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://98021691212672",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card gains a clone after every basic attack. Naruto gains a follow up attack of 15% for every clone.",
     },
     ["kidgoku"] = {
         Name = "Earth's Warrior (Kid)",
@@ -443,7 +379,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://72331545229425",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "Every time this card gets attacked, buff this card's stats by 5%.",
     },
     ["emiyashirou"] = {
         Name = "Projection Mage",
@@ -456,7 +392,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://79189848936927",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card gains damage equal to 10% of the strongest ally in the party.",
     },
     ["onepunchman"] = {
         Name = "Bald Hero",
@@ -469,7 +405,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://105179177507876",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card has a 5% chance for his attack to do 3x damage.",
     },
     ["Erwin"] = {
         Name = "Scout Commander",
@@ -482,10 +418,10 @@ local cardData = {
         ArtAssetId = "rbxassetid://123764198228582",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card boosts all allies' attack by 10% and their attack speed by ?% while alive.",
     },
     ["25thbaam"] = {
-        Name = "Irregular",
+        Name = "The Irregular",
         Attack = 160000000,
         Health = 230000000,
         AttackIntervalSeconds = 5.0,
@@ -495,7 +431,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://117036576029292",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card gains 10% of the enemy's damage when attacked. (Cap of 1 time for every unique enemy)",
     },
     ["touma"] = {
         Name = "Magic Eraser",
@@ -508,10 +444,10 @@ local cardData = {
         ArtAssetId = "rbxassetid://123401161010160",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card's first and every 2 attacks after inflict seal on the enemy for 1 turn.",
     },
     ["mikasa"] = {
-        Name = "Mikosa",
+        Name = "Red Scarf Scout",
         Attack = 50000,
         Health = 250000,
         AttackIntervalSeconds = 5.0,
@@ -521,7 +457,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://138354277926400",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+        Description = "At the start of the battle gain 15% stats and if Attack Scout is in the party, counter attack the enemy for 50% of her damage every time he gets attacked.",
     },
     ["megumin"] = {
         Name = "Exploison Mage",
@@ -534,7 +470,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://89844517591936",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card does 3.5x damage every attack, but stuns herself for ? seconds.",
     },
     ["lelouch"] = {
         Name = "Emperor of Miracles",
@@ -547,7 +483,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://127321903075119",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card's first hit on every enemy, controls them to attack a random enemy party member (including themselves) for 40% of the intended damage on their next attack.",
     },
     ["tien"] = {
         Name = "Three-Eyed MartiaL Artist",
@@ -560,7 +496,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://129250568589572",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card blinds the enemy for ? seconds at the start of the battle causing their attacks to have a 30% chance to miss.",
     },
     ["yamcha"] = {
         Name = "Wolf Martial Artist",
@@ -573,7 +509,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://89119667852200",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card follows up every attack for 30% damage.",
     },
     ["krillin"] = {
         Name = "Bald Martial Artist",
@@ -586,7 +522,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://108249090376433",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+        Description = "After ? seconds, this card throws out a disc that does 25% of the enemy's max health.",
     },
     ["kimimaru"] = {
         Name = "Bone Ninja",
@@ -599,7 +535,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://78405085193341",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+        Description = "At the start of the battle, Bone Ninja loses 15% of his max health to gain 30% damage.",
     },
     ["zabuza"] = {
         Name = "Mist Swordsman Ninja",
@@ -612,7 +548,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://70396265517152",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "After every attack, this card gains a 30% chance to dodge an attack",
     },
     ["gaara"] = {
         Name = "Sand Ninja",
@@ -625,7 +561,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://130749447452005",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Legendary custom card.",
+		Description = "Upon being hit for the first time, this card gains a 15% health shield and stuns the enemy for ? seconds.",
     },
     ["orochimaru"] = {
         Name = "Snake Ninja",
@@ -638,7 +574,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://132638306722484",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Legendary custom card.",
+		Description = "After every attack, reduce opponent's health by 8%. Whenever Snake Ninja kills an enemy, he gains a revive.",
     },
     ["beastnaruto"] = {
         Name = "Knucklehead Ninja (Beast)",
@@ -651,7 +587,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://104401685586690",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "After ? seconds, this card heals for 10% of its max health",
     },
     ["kakashi"] = {
         Name = "Copycat Ninja",
@@ -664,7 +600,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://113390490720780",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "When damaged by an enemy’s ability, this card immediately uses the same ability on the enemy.",
     },
     ["neji"] = {
         Name = "Gentle Fist Ninja",
@@ -675,7 +611,7 @@ local cardData = {
         Rarity = "Rare",
         ArtFitMode = "Fit",
         ArtAssetId = "rbxassetid://114174829826817",
-        AbilityId = "",
+		AbilityId = "This card creates a field for himself for ? seconds at the start where enemies are unable to dodge his attacks and his 2nd attack will apply stun for ? seconds.",
         AbilityCooldownSeconds = 10,
         Description = "Epic custom card.",
     },
@@ -690,7 +626,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://93123386103288",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card’s first three attacks buff his stats by 13%. His 4th attack will unleash Reverse Lotus on the active enemy doing 250% damage but causes him to lose his remaining health.",
     },
     ["sarutobi"] = {
         Name = "Old Ninja Leader",
@@ -703,7 +639,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://71720529372306",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = " Upon death, seal the enemy’s ability for ? seconds and reduce their attack by 15%.",
     },
     ["shikimaru"] = {
         Name = "Shadow Ninja",
@@ -716,7 +652,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://112990377291091",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "After ? seconds, Shadow Ninja controls the enemy’s next attack and makes them target themselves for 40% of their damage.",
     },
     ["zoro"] = {
         Name = "Triple Wielding Swordsman",
@@ -729,7 +665,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://81669998482188",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "When attacking this card has a 20% chance to attack two times and a 10% chance to attack three times.",
     },
     ["cursedsasuke"] = {
         Name = "Vengeance Seeking Ninja (Cursed)",
@@ -742,7 +678,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://106883272275852",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "At the start of the battle, stun an opponent for ? seconds and deal 30% damage",
     },
     ["piccolo"] = {
         Name = "Green Alien Fighter",
@@ -755,7 +691,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://112268337007455",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+        Description = "After ? seconds, fire a beam that does 250% damage that pierces and hits another enemy.",
     },
     ["nappa"] = {
         Name = "Bald Warrior",
@@ -768,7 +704,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://135464233858566",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "At the start of the battel, this card summons two Explosive Plants based on 15% of his stats.",
     },
     ["vegeta"] = {
         Name = "Prince of Warriors",
@@ -781,7 +717,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://129721390377551",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "At the start of the battle, this card attacsk the first 2 enemies for 30% damage",
     },
     ["ginyu"] = {
         Name = "Body Swapping Captain",
@@ -794,7 +730,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://110114431747693",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "When below 50% health or less, this card gains 20% of an opponent's health",
     },
     ["frieza"] = {
         Name = "Galactic Tyrant",
@@ -807,7 +743,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://132241129797306",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "While this card is alive, reduce the enemy party's stats by 15%.",
     },
     ["supergoku"] = {
         Name = "Earth's Warrior (Super)",
@@ -820,7 +756,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://100058730390303",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = " For every dead ally gain 10% damage. Goku gains an additional 20% damage and health if one of the allies was Bald Martial Artist",
     },
     ["erenyeager"] = {
         Name = "Attack Scout",
@@ -833,7 +769,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://124181131548110",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "On death, revive into the Attack Giant with the ability to gain the abilities of  enemies with Giant in their name upon killing them.",
     },
     ["colossaltitan"] = {
         Name = "Colossal Giant",
@@ -846,7 +782,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://86629198295971",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "At the start of battle, deal 15% damage to the enemy party and emit heavy steam dodging all attacks for ? turns.",
     },
     ["armoredtitan"] = {
         Name = "Armored Giant",
@@ -859,7 +795,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://115234694388580",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card takes 15% reduced damage and has a shield that blocks the first attack.",
     },
     ["beasttitan"] = {
         Name = "Beast Giant",
@@ -872,7 +808,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://115988826643837",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card's attacks hits the other enemy's cards for 10% damage. When reaching 50% health or below, stun the enemy party for ? seconds.",
     },
     ["levi"] = {
         Name = "Strongest Scout",
@@ -885,7 +821,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://93933871364780",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "Strongest Scout dodges the first attack and ignores the first stun inflicted on him. Upon killing an enemy, he immediately launches another attack on a random enemy.",
     },
     ["rui"] = {
         Name = "Spider Demon",
@@ -898,7 +834,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://109019402944199",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+        Description = "At the start of the battle, this card places webs on the field. While the webs are active on the field, Spider Demon gains 25% damage, the enemy party's attack speed is lowered and they can't dodge.",
     },
     ["femaletitan"] = {
         Name = "Female Giant",
@@ -911,7 +847,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://118313632487592",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card gains the abilities of two other Giant allies in the party.",
     },
     ["enmu"] = {
         Name = "Sleep Demon",
@@ -924,7 +860,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://112104829546175",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = " This card puts the enemy party to sleep (stun) for ? seconds at the start of the battle. While alive, 25% chance for the enemy to fall into deep sleep when they get stunned extending their stun by ? seconds.",
     },
     ["gyutaro"] = {
         Name = "Blood Sickle Demon",
@@ -937,33 +873,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://80924145111655",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
-    },
-    ["mastereduigoku"] = {
-        Name = "Omega Boku",
-        Attack = 1140000000,
-        Health = 5700000000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Custom",
-        Rarity = "God",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://140539112286647",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
-    },
-    ["sinbad"] = {
-        Name = "Zinba Lightning God",
-        Attack = 1160000000,
-        Health = 5800000000,
-        AttackIntervalSeconds = 5.0,
-        Category = "Custom",
-        Rarity = "God",
-        ArtFitMode = "Fit",
-        ArtAssetId = "rbxassetid://96720792003088",
-        AbilityId = "",
-        AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "This card's attacks apply a 10% damage bleed. If paired with Sash Demon, survive a fatal hit with 1 health and the first time Sash Demon gets attacked, This card sends flying blood sickles to the enemy party causing them all to take 5% damage bleed for the next ? seconds.",
     },
     ["hantengu"] = {
         Name = "Emotion Demon",
@@ -976,7 +886,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://98217450101948",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "On every attack, a random clone follows up this card attack with an effect. Anger: Enemy party gets shocked for 5% damage for ? seconds. Joy: Stun an enemy for ? seconds. Sorrow: The attack also hits a random enemy party member for 25%. Hatred: The attack does an extra 40% damage.",
     },
     ["daki"] = {
         Name = "Sash Demon",
@@ -989,7 +899,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://135120754795304",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "If paired with Blood Sickle Demon, survive a fatal hit with 1 health. Every ? seconds while Blodo Sickle Demon or this card is active on the field, her sash will attack a random enemy for 40% of her damage even if Sash Demon is dead.",
     },
     ["gyokko"] = {
         Name = "Vase Demon",
@@ -1002,7 +912,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://115794821435062",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "Every ? seconds, this card set up a vase that stuns enemies that attack him. Enemies that get stunned from his vase get debuffed with wet (increased 50% shock damage) and take damage for 8% of their health.",
     },
     ["mitsuri"] = {
         Name = "Love Swordswoman",
@@ -1015,7 +925,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://82202474274633",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = "Enemies are unable to counter attack this card. Every other attack, this card does 3-12 follow up attacks doing 5% damage",
     },
     ["inosuke"] = {
         Name = "Boar Swordsman",
@@ -1028,7 +938,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://93321513087787",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Legendary custom card.",
+		Description = "Boar Swordsman attacks twice, with the 2nd hit doing 40% damage. Boar Swordsman survives the first fatal hit with 1 health.",
     },
     ["nezuko"] = {
         Name = "Sister Demon",
@@ -1041,7 +951,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://101061610934105",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Epic custom card.",
+		Description = ": Attacks apply a burn doing 10% of her damage and against cards containing Demon the burn damage is doubled. If Special Swordsman is in the team, buff both cards stats by 10% and counter attack the first time he gets attacked for 50% of her damage and applying the burn.",
     },
     ["tanjiro"] = {
         Name = "Special Swordsman",
@@ -1054,7 +964,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://114299715654896",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Legendary custom card.",
+		Description = " Attacks have a 40% chance to crit for 1.5x damage. Upon reaching 50% health or less, Special Swordsman unleashes Hinokami Kagura doing 150% damage and reduces the active enemy’s healing by 50% for ? seconds.",
     },
     ["zenitsu"] = {
         Name = "Thunder Swordsman",
@@ -1067,7 +977,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://131041870279708",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Legendary custom card.",
+		Description = "Thunder Swordsman will still attack while stunned. His attacks does 50% more damage while under the effects of any stuns.",
     },
     ["shinobu"] = {
         Name = "Insect Swordswoman",
@@ -1080,7 +990,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://71661611456386",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Legendary custom card.",
+		Description = "Attacks inflict a permanent stacking poison that does 2% max health every turn. This card cleanses 1 poison debuffs on the team every ? seconds while alive.",
     },
     ["muichiro"] = {
         Name = "Mist Swordsman",
@@ -1093,7 +1003,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://104738991259225",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Legendary custom card.",
+		Description = "This card has a 30% chance to dodge attacks. After dodging, Mist Swordsman’s next attack is buffed by 40%.",
     },
     ["rengoku"] = {
         Name = "Fire Swordsman",
@@ -1106,7 +1016,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://90496984463626",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Legendary custom card.",
+		Description = "Attacks apply a 10% damage burn for ? seconds. Before dying, unleash a flame dragon doing 140% burn damage on the enemy that killed him.",
     },
     ["tengen"] = {
         Name = "Sound Swordsman",
@@ -1119,7 +1029,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://80771976298860",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Legendary custom card.",
+		Description = "At the start of the battle, this card does 10% damage to the enemy party. fter attacking an enemy once, Sound Swordsman attacks against them can’t miss. This card’s attacks explode a bead, causing a random enemy to take 30% damage.",
     },
     ["giyuu"] = {
         Name = "Water Swordsman",
@@ -1132,7 +1042,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://117691618947027",
         AbilityId = "",
         AbilityCooldownSeconds = 10,
-        Description = "Legendary custom card.",
+		Description = "Block the first enemy attack and ability that targets this card. Every attack against the same enemy increases Water Swordsman damage by 10%. After attacking 3 times, this card unleashes a water dragon doing 150% damage on his next attack.",
     },
     ["asuna"] = {
         Name = "Sword Maiden",
@@ -1144,7 +1054,8 @@ local cardData = {
         ArtFitMode = "Crop",
         ArtAssetId = "rbxassetid://86073937479874",
         AbilityId = "AttackSpeedBoost",
-        AbilityCooldownSeconds = 12
+		AbilityCooldownSeconds = 12,
+		Description = "At the start of the battle, Sword Maiden does an 8-hit combo against an enemy for 5% damage each. If Black Swordsman is in the party, both cards attacks are synchronized making them follow up on each other’s attacks for 35% of their damage.",
     },
     ["misaamane"] = {
         Name = "Eyes of Death",
@@ -1156,7 +1067,8 @@ local cardData = {
         ArtFitMode = "Crop",
         ArtAssetId = "rbxassetid://139639316125366",
         AbilityId = "AttackDamageBoost",
-        AbilityCooldownSeconds = 15
+		AbilityCooldownSeconds = 15,
+		Description = "At the start of the battle, this card charms the enemy party, causing them to not attack for ? seconds. After attacking an enemy once, this card learns their True Name and passes it onto an ally Death Writer.",
     },
     ["frieren"] = {
         Name = "Elf Mage",
@@ -1192,7 +1104,8 @@ local cardData = {
         ArtFitMode = "Crop",
         ArtAssetId = "rbxassetid://108032115040659",
         AbilityId = "AttackDamageBoost",
-        AbilityCooldownSeconds = 15
+		AbilityCooldownSeconds = 15,
+		Description = "Upon death, Immortal Witch revives back to max health. This card has immunity to any control effects.",
     },
     ["esdeath"] = {
         Name = "Ice Empress",
@@ -1204,7 +1117,8 @@ local cardData = {
         ArtFitMode = "Crop",
         ArtAssetId = "rbxassetid://90045181883052",
         AbilityId = "AttackDamageBoost",
-        AbilityCooldownSeconds = 15
+		AbilityCooldownSeconds = 15,
+		Description = "When the battle starts, mark a random ally or enemy with her affection. While they are alive, her stats are buffed by 30%. This card freezes the enemy party at the start of battle, 50% chance for them to thaw out of the freeze after every ? seconds."
     },
     ["aqua"] = {
         Name = "Water Goddess",
@@ -1216,7 +1130,8 @@ local cardData = {
         ArtFitMode = "Crop",
         ArtAssetId = "rbxassetid://122803861262986",
         AbilityId = "HealAlly",
-        AbilityCooldownSeconds = 9
+		AbilityCooldownSeconds = 9,
+		Description = "Water Goddess causes a flood on the field after ? seconds, clearing the field of all field effects and traps and causing burn damage to reduced by 50% for ? seconds. Every ? seconds, this card will heal herself or an ally for 15% of her max health."
     },
     ["PerfectCell"] = {
         Name = "Perfect Cell",
@@ -2009,5 +1924,4 @@ function CardDatabase.RegisterCard(cardId, data)
     return true, "Registered"
 end
 
-return CardDatabase
-
+return CardDatabase    
