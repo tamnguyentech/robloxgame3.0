@@ -119,4 +119,482 @@ EffectResolver.RegisterEffectHandler("EnemyPartyAttackDown", function(context)
 	}
 end)
 
+EffectResolver.RegisterEffectHandler("EnemyIncomingDamageVulnerability", function(context)
+	local now = tonumber(context.now) or os.clock()
+	local magnitude = math.min(2, math.max(0, tonumber(context.magnitude) or 0))
+	local durationSeconds = math.max(0, tonumber(context.durationSeconds) or 0)
+
+	if context.mode == "Npc" then
+		local session = context.session
+		if not session then
+			return { targetSlotIndices = {}, magnitude = magnitude, durationSeconds = durationSeconds, applied = false }
+		end
+		session.npcIncomingDamageBonusFraction = math.max(tonumber(session.npcIncomingDamageBonusFraction) or 0, magnitude)
+		session.npcIncomingDamageBonusUntil = math.max(tonumber(session.npcIncomingDamageBonusUntil) or 0, now + durationSeconds)
+		return {
+			targetSlotIndices = { 0 },
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = true,
+		}
+	end
+
+	local opponents = CombatFormulas.FilterAlive(context.opponents or {})
+	if #opponents == 0 then
+		return {
+			targetSlotIndices = {},
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = false,
+		}
+	end
+
+	local target = opponents[math.random(1, #opponents)]
+	target.incomingDamageBonusFraction = math.max(tonumber(target.incomingDamageBonusFraction) or 0, magnitude)
+	target.incomingDamageBonusUntil = math.max(tonumber(target.incomingDamageBonusUntil) or 0, now + durationSeconds)
+	return {
+		targetSlotIndices = { target.slotIndex },
+		magnitude = magnitude,
+		durationSeconds = durationSeconds,
+		applied = true,
+	}
+end)
+
+EffectResolver.RegisterEffectHandler("LastAllyHealthShare", function(context)
+	local caster = context.caster
+	if not caster then
+		return {
+			targetSlotIndices = {},
+			magnitude = tonumber(context.magnitude) or 0,
+			durationSeconds = 0,
+			applied = false,
+		}
+	end
+
+	local aliveAllies = CombatFormulas.FilterAlive(context.allies or {})
+	if #aliveAllies == 0 then
+		return {
+			targetSlotIndices = {},
+			magnitude = tonumber(context.magnitude) or 0,
+			durationSeconds = 0,
+			applied = false,
+		}
+	end
+
+	local magnitude = math.max(0, tonumber(context.magnitude) or 0)
+	if magnitude <= 0 then
+		return {
+			targetSlotIndices = {},
+			magnitude = 0,
+			durationSeconds = 0,
+			applied = false,
+		}
+	end
+
+	local casterSlotIndex = tonumber(caster.slotIndex) or nil
+	local casterMaxHealth = math.max(0, tonumber(caster.maxHealth) or tonumber(caster.health) or 0)
+
+	-- "Last ally" = highest slotIndex among allies, excluding the caster.
+	local target = nil
+	local bestSlot = -math.huge
+	for _, ally in ipairs(aliveAllies) do
+		local allySlot = tonumber(ally.slotIndex) or 0
+		if not (ally == caster) and not (casterSlotIndex ~= nil and allySlot == casterSlotIndex) then
+			if allySlot > bestSlot then
+				target = ally
+				bestSlot = allySlot
+			end
+		end
+	end
+
+	if not target then
+		return {
+			targetSlotIndices = {},
+			magnitude = magnitude,
+			durationSeconds = 0,
+			applied = false,
+		}
+	end
+
+	-- At battle start, caster.health == caster.maxHealth in both PvE and PvP.
+	local transfer = math.max(1, math.floor(casterMaxHealth * magnitude))
+	target.maxHealth = (tonumber(target.maxHealth) or 0) + transfer
+	target.health = (tonumber(target.health) or 0) + transfer
+
+	return {
+		targetSlotIndices = { target.slotIndex },
+		magnitude = magnitude,
+		durationSeconds = 0,
+		applied = true,
+	}
+end)
+
+EffectResolver.RegisterEffectHandler("SealOneEnemy", function(context)
+	local now = tonumber(context.now) or os.clock()
+	local magnitude = math.max(0, tonumber(context.magnitude) or 0)
+	local durationSeconds = math.max(0, tonumber(context.durationSeconds) or 0)
+
+	if context.mode == "Npc" then
+		-- NPC mode currently has no ability-cast lockout on the NPC side.
+		return {
+			targetSlotIndices = {},
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = false,
+		}
+	end
+
+	local opponents = CombatFormulas.FilterAlive(context.opponents or {})
+	if #opponents == 0 or durationSeconds <= 0 then
+		return {
+			targetSlotIndices = {},
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = false,
+		}
+	end
+
+	local target = opponents[math.random(1, #opponents)]
+	if not target then
+		return {
+			targetSlotIndices = {},
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = false,
+		}
+	end
+
+	target.sealUntil = math.max(tonumber(target.sealUntil) or 0, now + durationSeconds)
+	return {
+		targetSlotIndices = { target.slotIndex },
+		magnitude = magnitude,
+		durationSeconds = durationSeconds,
+		applied = true,
+	}
+end)
+
+EffectResolver.RegisterEffectHandler("AntiMagicOnEntry", function(context)
+	local now = tonumber(context.now) or os.clock()
+	local magnitude = math.max(0, tonumber(context.magnitude) or 0)
+	local durationSeconds = math.max(0, tonumber(context.durationSeconds) or 0)
+	local vsMageFraction = math.clamp(tonumber(context.vsMageDamageReductionFraction) or 0, 0, 0.95)
+
+	local caster = context.caster
+	if caster and vsMageFraction > 0 then
+		caster.damageReductionVsMageAttacks = math.max(tonumber(caster.damageReductionVsMageAttacks) or 0, vsMageFraction)
+	end
+
+	local targetSlotIndices = {}
+	local sealed = false
+
+	if context.mode ~= "Npc" then
+		local opponents = CombatFormulas.FilterAlive(context.opponents or {})
+		if #opponents > 0 and durationSeconds > 0 then
+			local target = opponents[math.random(1, #opponents)]
+			if target then
+				target.sealUntil = math.max(tonumber(target.sealUntil) or 0, now + durationSeconds)
+				table.insert(targetSlotIndices, target.slotIndex)
+				sealed = true
+			end
+		end
+	end
+
+	local passiveApplied = caster ~= nil and vsMageFraction > 0
+	return {
+		targetSlotIndices = targetSlotIndices,
+		magnitude = magnitude,
+		durationSeconds = durationSeconds,
+		applied = sealed or passiveApplied,
+	}
+end)
+
+EffectResolver.RegisterEffectHandler("StunOneEnemy", function(context)
+	local now = tonumber(context.now) or os.clock()
+	local magnitude = math.max(0, tonumber(context.magnitude) or 0)
+	local durationSeconds = math.max(0, tonumber(context.durationSeconds) or 0)
+
+	if context.mode == "Npc" then
+		local session = context.session
+		if not session or durationSeconds <= 0 then
+			return {
+				targetSlotIndices = {},
+				magnitude = magnitude,
+				durationSeconds = durationSeconds,
+				applied = false,
+			}
+		end
+		session.npcStunUntil = math.max(tonumber(session.npcStunUntil) or 0, now + durationSeconds)
+		return {
+			targetSlotIndices = { 0 },
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = true,
+		}
+	end
+
+	local opponents = CombatFormulas.FilterAlive(context.opponents or {})
+	if #opponents == 0 or durationSeconds <= 0 then
+		return {
+			targetSlotIndices = {},
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = false,
+		}
+	end
+
+	local target = opponents[math.random(1, #opponents)]
+	if not target then
+		return {
+			targetSlotIndices = {},
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = false,
+		}
+	end
+
+	target.stunUntil = math.max(tonumber(target.stunUntil) or 0, now + durationSeconds)
+	return {
+		targetSlotIndices = { target.slotIndex },
+		magnitude = magnitude,
+		durationSeconds = durationSeconds,
+		applied = true,
+	}
+end)
+
+EffectResolver.RegisterEffectHandler("StunAllEnemies", function(context)
+	local now = tonumber(context.now) or os.clock()
+	local magnitude = math.max(0, tonumber(context.magnitude) or 0)
+	local durationSeconds = math.max(0, tonumber(context.durationSeconds) or 0)
+
+	if context.mode == "Npc" then
+		local session = context.session
+		if not session or durationSeconds <= 0 then
+			return {
+				targetSlotIndices = {},
+				magnitude = magnitude,
+				durationSeconds = durationSeconds,
+				applied = false,
+			}
+		end
+		session.npcStunUntil = math.max(tonumber(session.npcStunUntil) or 0, now + durationSeconds)
+		return {
+			targetSlotIndices = { 0 },
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = true,
+		}
+	end
+
+	local opponents = CombatFormulas.FilterAlive(context.opponents or {})
+	if #opponents == 0 or durationSeconds <= 0 then
+		return {
+			targetSlotIndices = {},
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = false,
+		}
+	end
+
+	local targetSlotIndices = {}
+	for _, target in ipairs(opponents) do
+		target.stunUntil = math.max(tonumber(target.stunUntil) or 0, now + durationSeconds)
+		table.insert(targetSlotIndices, target.slotIndex)
+	end
+
+	return {
+		targetSlotIndices = targetSlotIndices,
+		magnitude = magnitude,
+		durationSeconds = durationSeconds,
+		applied = #targetSlotIndices > 0,
+	}
+end)
+
+EffectResolver.RegisterEffectHandler("DisableDodgeAllEnemies", function(context)
+	local now = tonumber(context.now) or os.clock()
+	local magnitude = math.max(0, tonumber(context.magnitude) or 0)
+	local durationSeconds = math.max(0, tonumber(context.durationSeconds) or 0)
+
+	if context.mode == "Npc" then
+		-- NPC mode: target is the single NPC; dodge isn't modeled for the NPC side in PvE.
+		return {
+			targetSlotIndices = {},
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = false,
+		}
+	end
+
+	local opponents = CombatFormulas.FilterAlive(context.opponents or {})
+	if #opponents == 0 or durationSeconds <= 0 then
+		return {
+			targetSlotIndices = {},
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = false,
+		}
+	end
+
+	local targetSlotIndices = {}
+	for _, target in ipairs(opponents) do
+		target.dodgeDisabledUntil = math.max(tonumber(target.dodgeDisabledUntil) or 0, now + durationSeconds)
+		table.insert(targetSlotIndices, target.slotIndex)
+	end
+
+	return {
+		targetSlotIndices = targetSlotIndices,
+		magnitude = magnitude,
+		durationSeconds = durationSeconds,
+		applied = #targetSlotIndices > 0,
+	}
+end)
+
+-- Passive: DamageMultiplierOnHitProc
+-- Magnitude = procChance (0-1).
+-- ProcDamageBonus = bonus amount (e.g. +1.5 means total multiplier = 1 + 1.5 = 2.5).
+-- DurationSeconds = how long the passive proc is active (until timestamp).
+EffectResolver.RegisterEffectHandler("DamageMultiplierOnHitProc", function(context)
+	local now = tonumber(context.now) or os.clock()
+	local magnitude = math.max(0, tonumber(context.magnitude) or 0)
+	local durationSeconds = math.max(0, tonumber(context.durationSeconds) or 0)
+	local caster = context.caster
+
+	if not caster then
+		return {
+			targetSlotIndices = {},
+			magnitude = magnitude,
+			durationSeconds = durationSeconds,
+			applied = false,
+		}
+	end
+
+	local procChance = math.clamp(magnitude, 0, 1)
+	local procDamageBonus = math.max(0, tonumber(context.procDamageBonus) or 0)
+	local procUntil = now + durationSeconds
+
+	caster.onHitDamageProcs = caster.onHitDamageProcs or {}
+	table.insert(caster.onHitDamageProcs, {
+		chance = procChance,
+		bonus = procDamageBonus, -- bonus amount (not total multiplier)
+		untilTime = procUntil,
+	})
+
+	return {
+		targetSlotIndices = { caster.slotIndex },
+		magnitude = magnitude,
+		durationSeconds = durationSeconds,
+		-- This effect is evaluated in `DamagePipeline` on landed hits.
+		-- We intentionally suppress `abilityEvents` so the UI doesn't spam with proc-only effects.
+		applied = false,
+	}
+end)
+
+-- OnEntry ability:
+-- - Hits a single enemy (random) multiple times.
+-- - Each hit deals: enemy.baseAttack * Magnitude
+-- - Applies a reduced-healing debuff to the enemy for DurationSeconds.
+EffectResolver.RegisterEffectHandler("MultiHitDamageAndHealingReductionOnEntry", function(context)
+	local now = tonumber(context.now) or os.clock()
+	local damageFraction = math.max(0, tonumber(context.magnitude) or 0)
+	local durationSeconds = math.max(0, tonumber(context.durationSeconds) or 0)
+	local hitCount = math.max(1, tonumber(context.hitCount) or 1)
+	local healingReductionFraction = math.clamp(tonumber(context.healingReductionFraction) or 0, 0, 1)
+
+	local caster = context.caster
+	if not caster then
+		return {
+			targetSlotIndices = {},
+			applied = false,
+		}
+	end
+
+	if context.mode == "Npc" then
+		local session = context.session
+		if not session then
+			return {
+				targetSlotIndices = {},
+				applied = false,
+			}
+		end
+
+		local npcAttack = math.max(1, math.floor(tonumber(session.npcAttack) or 1))
+		local entryNpcAttacks = {}
+		for hitIndex = 1, hitCount do
+			local rawDamage = math.max(0, math.floor(npcAttack * damageFraction))
+			local hitResult = DamagePipeline.ResolveHit(caster, nil, rawDamage, now)
+			DamagePipeline.ApplyDamageToNpc(session, hitResult.finalDamage)
+			table.insert(entryNpcAttacks, {
+				attackerSlotIndex = caster.slotIndex,
+				attackerCardId = caster.cardId,
+				isEntryMultiHit = true,
+				entryHitIndex = hitIndex,
+				dealtDamage = hitResult.finalDamage,
+				rawDamage = hitResult.rawDamage,
+				isCrit = hitResult.isCrit,
+				isDodged = hitResult.isDodged,
+				absorbed = hitResult.absorbed,
+			})
+		end
+
+		-- NPC healing reduction is reserved for future NPC-heal mechanics.
+		session.npcHealingReductionFraction = healingReductionFraction
+		session.npcHealingReductionUntil = now + durationSeconds
+
+		return {
+			targetSlotIndices = {},
+			magnitude = healingReductionFraction,
+			durationSeconds = durationSeconds,
+			entryNpcAttacks = entryNpcAttacks,
+			applied = true,
+		}
+	end
+
+	local opponents = CombatFormulas.FilterAlive(context.opponents or {})
+	if #opponents == 0 or durationSeconds <= 0 then
+		return {
+			targetSlotIndices = {},
+			applied = false,
+		}
+	end
+
+	local target = opponents[math.random(1, #opponents)]
+	if not target then
+		return {
+			targetSlotIndices = {},
+			applied = false,
+		}
+	end
+
+	-- Apply reduced healing debuff immediately.
+	target.healingReductionFraction = healingReductionFraction
+	target.healingReductionUntil = now + durationSeconds
+
+	local targetBaseAttack = tonumber(target.baseAttack) or tonumber(target.attack) or 0
+	local entryAttacks = {}
+	for hitIndex = 1, hitCount do
+		local rawDamage = math.max(0, math.floor(targetBaseAttack * damageFraction))
+		local hitResult = DamagePipeline.ResolveHit(caster, target, rawDamage, now)
+		table.insert(entryAttacks, {
+			attackerSlotIndex = caster.slotIndex,
+			attackerCardId = caster.cardId,
+			isEntryMultiHit = true,
+			entryHitIndex = hitIndex,
+			targetSlotIndex = target.slotIndex,
+			targetCardId = target.cardId,
+			damage = hitResult.finalDamage,
+			rawDamage = hitResult.rawDamage,
+			isCrit = hitResult.isCrit,
+			isDodged = hitResult.isDodged,
+			absorbed = hitResult.absorbed,
+		})
+	end
+
+	return {
+		targetSlotIndices = { target.slotIndex },
+		magnitude = healingReductionFraction,
+		durationSeconds = durationSeconds,
+		entryAttacks = entryAttacks,
+		applied = true,
+	}
+end)
+
 return EffectResolver

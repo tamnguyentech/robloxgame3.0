@@ -206,8 +206,19 @@ local function buildCardState(slotIndex, cardId)
 		speedBoostUntil = 0,
 		damageBoostMagnitude = 0,
 		damageBoostUntil = 0,
+		-- Generic on-hit damage procs (see AbilityDatabase / EffectResolver / DamagePipeline).
+		onHitDamageProcs = {},
+		-- Reduced healing debuff (fraction 0..1), applied in DamagePipeline.ApplyHealToUnit.
+		healingReductionFraction = 0,
+		healingReductionUntil = 0,
+		incomingDamageBonusFraction = 0,
+		incomingDamageBonusUntil = 0,
 		outgoingAttackDebuffPercent = 0,
 		outgoingAttackDebuffUntil = 0,
+		-- Control effects (implemented server-side by gating loops + DamagePipeline).
+		stunUntil = 0,
+		sealUntil = 0,
+		dodgeDisabledUntil = 0,
 		statBlock = st,
 		deathNotified = false,
 	}
@@ -263,6 +274,18 @@ local function serializeCardStates(cardStates, now)
 		local spdUntil = tonumber(state.speedBoostUntil) or 0
 		local spdMag = tonumber(state.speedBoostMagnitude) or 0
 		local spdRem = (spdUntil > currentNow and spdMag > 0) and (spdUntil - currentNow) or 0
+		local stunUntil = tonumber(state.stunUntil) or 0
+		local sealUntil = tonumber(state.sealUntil) or 0
+		local dodgeDisabledUntil = tonumber(state.dodgeDisabledUntil) or 0
+		local stunRem = (stunUntil > currentNow) and (stunUntil - currentNow) or 0
+		local sealRem = (sealUntil > currentNow) and (sealUntil - currentNow) or 0
+		local dodgeDisabledRem = (dodgeDisabledUntil > currentNow) and (dodgeDisabledUntil - currentNow) or 0
+		local healRedFrac = tonumber(state.healingReductionFraction) or 0
+		local healRedUntil = tonumber(state.healingReductionUntil) or 0
+		local healRedRem = (healRedUntil > currentNow) and (healRedUntil - currentNow) or 0
+		local vulnFrac = tonumber(state.incomingDamageBonusFraction) or 0
+		local vulnUntil = tonumber(state.incomingDamageBonusUntil) or 0
+		local vulnRem = (vulnUntil > currentNow) and (vulnUntil - currentNow) or 0
 		table.insert(out, {
 			slotIndex = state.slotIndex,
 			cardId = state.cardId,
@@ -276,6 +299,13 @@ local function serializeCardStates(cardStates, now)
 			outgoingAttackDebuffRemainingSec = debuffRem,
 			speedBoostMagnitude = spdMag,
 			speedBoostRemainingSec = spdRem,
+			stunRemainingSec = stunRem,
+			sealRemainingSec = sealRem,
+			dodgeDisabledRemainingSec = dodgeDisabledRem,
+			healingReductionFraction = healRedFrac,
+			healingReductionRemainingSec = healRedRem,
+			incomingDamageBonusFraction = vulnFrac,
+			incomingDamageBonusRemainingSec = vulnRem,
 		})
 	end
 	return out
@@ -337,11 +367,19 @@ local function runCombatLoop(session)
 	task.spawn(function()
 		local t0 = os.clock()
 		local entryEvents = {}
-		CombatAutoAbilities.ApplyOnBattleStartPvp(session, t0, entryEvents)
-		if #entryEvents > 0 then
+		local entryAttacks = {}
+		CombatAutoAbilities.ApplyOnBattleStartPvp(session, t0, entryEvents, entryAttacks)
+		if #entryAttacks > 0 then
+			for _, attack in ipairs(entryAttacks) do
+				session.hitSeq = (session.hitSeq or 0) + 1
+				attack.hitSeq = session.hitSeq
+			end
+		end
+		if #entryEvents > 0 or #entryAttacks > 0 then
 			emitStateUpdate(session, {
 				reason = "OnEntryAbilities",
 				abilityEvents = entryEvents,
+				attacks = entryAttacks,
 			})
 		end
 
@@ -369,73 +407,108 @@ local function runCombatLoop(session)
 
 			for _, attacker in ipairs(playerAAlive) do
 				if attacker.abilityId ~= "" and attacker.nextAbilityAt <= now then
-					CombatAutoAbilities.TryApply(
-						session.cardStatesByUserId[session.playerAUserId],
-						attacker,
-						now,
-						abilityEvents,
-						{ attackerUserId = session.playerAUserId }
-					)
-					attacker.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(attacker.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
+					local stunUntil = tonumber(attacker.stunUntil) or 0
+					local sealUntil = tonumber(attacker.sealUntil) or 0
+					if stunUntil > now then
+						-- Stunned: abilities disabled until stun ends.
+						attacker.nextAbilityAt = stunUntil + 0.01
+					elseif sealUntil > now then
+						-- Sealed: abilities disabled until seal ends.
+						attacker.nextAbilityAt = sealUntil + 0.01
+					else
+						CombatAutoAbilities.TryApply(
+							session.cardStatesByUserId[session.playerAUserId],
+							attacker,
+							now,
+							abilityEvents,
+							{
+								attackerUserId = session.playerAUserId,
+								opponents = aliveCards(session.cardStatesByUserId[session.playerBUserId]),
+							}
+						)
+						attacker.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(attacker.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
+					end
 				end
 
 				if attacker.nextAttackAt <= now then
-					local defenders = aliveCards(session.cardStatesByUserId[session.playerBUserId])
-					if #defenders > 0 then
-						local target = defenders[math.random(1, #defenders)]
-						local rawDamage = CombatFormulas.GetEffectiveAttack(attacker, now)
-						local hitResult = DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
-						table.insert(attacksThisTick, {
-							attackerUserId = session.playerAUserId,
-							attackerSlotIndex = attacker.slotIndex,
-							targetUserId = session.playerBUserId,
-							targetSlotIndex = target.slotIndex,
-							damage = hitResult.finalDamage,
-							rawDamage = hitResult.rawDamage,
-							isCrit = hitResult.isCrit,
-							isDodged = hitResult.isDodged,
-							absorbed = hitResult.absorbed,
-						})
-						lastHitByTargetKey[tostring(session.playerBUserId) .. ":" .. tostring(target.slotIndex)] = attacker
+					local stunUntil = tonumber(attacker.stunUntil) or 0
+					if stunUntil > now then
+						-- Stunned: attacks disabled until stun ends.
+						attacker.nextAttackAt = stunUntil + 0.01
+					else
+						local defenders = aliveCards(session.cardStatesByUserId[session.playerBUserId])
+						if #defenders > 0 then
+							local target = defenders[math.random(1, #defenders)]
+							local rawDamage = CombatFormulas.GetEffectiveAttack(attacker, now)
+							local hitResult = DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
+							table.insert(attacksThisTick, {
+								attackerUserId = session.playerAUserId,
+								attackerSlotIndex = attacker.slotIndex,
+								targetUserId = session.playerBUserId,
+								targetSlotIndex = target.slotIndex,
+								damage = hitResult.finalDamage,
+								rawDamage = hitResult.rawDamage,
+								isCrit = hitResult.isCrit,
+								isDodged = hitResult.isDodged,
+								absorbed = hitResult.absorbed,
+							})
+							lastHitByTargetKey[tostring(session.playerBUserId) .. ":" .. tostring(target.slotIndex)] = attacker
+						end
+						attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 					end
-					attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 				end
 			end
 
 			for _, attacker in ipairs(playerBAlive) do
 				if attacker.abilityId ~= "" and attacker.nextAbilityAt <= now then
-					CombatAutoAbilities.TryApply(
-						session.cardStatesByUserId[session.playerBUserId],
-						attacker,
-						now,
-						abilityEvents,
-						{ attackerUserId = session.playerBUserId }
-					)
-					attacker.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(attacker.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
+					local stunUntil = tonumber(attacker.stunUntil) or 0
+					local sealUntil = tonumber(attacker.sealUntil) or 0
+					if stunUntil > now then
+						attacker.nextAbilityAt = stunUntil + 0.01
+					elseif sealUntil > now then
+						attacker.nextAbilityAt = sealUntil + 0.01
+					else
+						CombatAutoAbilities.TryApply(
+							session.cardStatesByUserId[session.playerBUserId],
+							attacker,
+							now,
+							abilityEvents,
+							{
+								attackerUserId = session.playerBUserId,
+								opponents = aliveCards(session.cardStatesByUserId[session.playerAUserId]),
+							}
+						)
+						attacker.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(attacker.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
+					end
 				end
 
 				if attacker.nextAttackAt <= now then
-					local defenders = aliveCards(session.cardStatesByUserId[session.playerAUserId])
-					if #defenders > 0 then
-						local target = defenders[math.random(1, #defenders)]
-						local rawDamage = CombatFormulas.GetEffectiveAttack(attacker, now)
-						local hitResult = DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
-						session.hitSeq = (session.hitSeq or 0) + 1
-						table.insert(attacksThisTick, {
-							attackerUserId = session.playerBUserId,
-							attackerSlotIndex = attacker.slotIndex,
-							targetUserId = session.playerAUserId,
-							targetSlotIndex = target.slotIndex,
-							damage = hitResult.finalDamage,
-							rawDamage = hitResult.rawDamage,
-							isCrit = hitResult.isCrit,
-							isDodged = hitResult.isDodged,
-							absorbed = hitResult.absorbed,
-							hitSeq = session.hitSeq,
-						})
-						lastHitByTargetKey[tostring(session.playerAUserId) .. ":" .. tostring(target.slotIndex)] = attacker
+					local stunUntil = tonumber(attacker.stunUntil) or 0
+					if stunUntil > now then
+						attacker.nextAttackAt = stunUntil + 0.01
+					else
+						local defenders = aliveCards(session.cardStatesByUserId[session.playerAUserId])
+						if #defenders > 0 then
+							local target = defenders[math.random(1, #defenders)]
+							local rawDamage = CombatFormulas.GetEffectiveAttack(attacker, now)
+							local hitResult = DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
+							session.hitSeq = (session.hitSeq or 0) + 1
+							table.insert(attacksThisTick, {
+								attackerUserId = session.playerBUserId,
+								attackerSlotIndex = attacker.slotIndex,
+								targetUserId = session.playerAUserId,
+								targetSlotIndex = target.slotIndex,
+								damage = hitResult.finalDamage,
+								rawDamage = hitResult.rawDamage,
+								isCrit = hitResult.isCrit,
+								isDodged = hitResult.isDodged,
+								absorbed = hitResult.absorbed,
+								hitSeq = session.hitSeq,
+							})
+							lastHitByTargetKey[tostring(session.playerAUserId) .. ":" .. tostring(target.slotIndex)] = attacker
+						end
+						attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 					end
-					attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 				end
 			end
 

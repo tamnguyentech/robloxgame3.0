@@ -428,6 +428,14 @@ local uiState = {
 	npcDrDebuffEndClock = nil,
 	npcDrDebuffPercent = nil,
 	npcDrDebuffHbConn = nil,
+	npcHealingDebuffEndClock = nil,
+	npcHealingDebuffPercent = nil,
+	npcHealingDebuffHbConn = nil,
+	npcIncomingDamageBonusEndClock = nil,
+	npcIncomingDamageBonusFraction = nil,
+	npcIncomingDamageBonusHbConn = nil,
+	npcStunEndClock = nil,
+	npcStunHbConn = nil,
 	speedBoostEndBySlot = {},
 	speedBoostMagBySlot = {},
 	speedBoostHbConn = nil,
@@ -613,6 +621,96 @@ local function createBattleGui(payload)
 	npcDrText.TextStrokeTransparency = 0.35
 	npcDrText.Text = "DR 10% · 0.0s"
 	npcDrText.Parent = npcDrBar
+
+	local npcStunBar = Instance.new("Frame")
+	npcStunBar.Name = "NpcStunDebuffBar"
+	npcStunBar.Visible = false
+	npcStunBar.Size = UDim2.new(1, -16, 0, 30)
+	npcStunBar.Position = UDim2.new(0, 8, 0, 136)
+	npcStunBar.BackgroundColor3 = Color3.fromRGB(70, 18, 18)
+	npcStunBar.BackgroundTransparency = 0.12
+	npcStunBar.BorderSizePixel = 0
+	npcStunBar.ZIndex = 19
+	npcStunBar.Parent = npcEnemyCard
+	local npcStunCorner = Instance.new("UICorner")
+	npcStunCorner.CornerRadius = UDim.new(0, 8)
+	npcStunCorner.Parent = npcStunBar
+	local npcStunStroke = Instance.new("UIStroke")
+	npcStunStroke.Thickness = 1.5
+	npcStunStroke.Color = Color3.fromRGB(255, 120, 120)
+	npcStunStroke.Transparency = 0.25
+	npcStunStroke.Parent = npcStunBar
+	local npcStunText = Instance.new("TextLabel")
+	npcStunText.Name = "StunText"
+	npcStunText.Size = UDim2.fromScale(1, 1)
+	npcStunText.BackgroundTransparency = 1
+	npcStunText.Font = Enum.Font.GothamBold
+	npcStunText.TextSize = 16
+	npcStunText.TextColor3 = Color3.fromRGB(255, 160, 160)
+	npcStunText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	npcStunText.TextStrokeTransparency = 0.35
+	npcStunText.Text = "STUN · 0.0s"
+	npcStunText.Parent = npcStunBar
+
+	local npcHealBar = Instance.new("Frame")
+	npcHealBar.Name = "NpcHealingDebuffBar"
+	npcHealBar.Visible = false
+	npcHealBar.Size = UDim2.new(1, -16, 0, 30)
+	npcHealBar.Position = UDim2.new(0, 8, 0, 170)
+	npcHealBar.BackgroundColor3 = Color3.fromRGB(62, 34, 16)
+	npcHealBar.BackgroundTransparency = 0.1
+	npcHealBar.BorderSizePixel = 0
+	npcHealBar.ZIndex = 19
+	npcHealBar.Parent = npcEnemyCard
+	local npcHealCorner = Instance.new("UICorner")
+	npcHealCorner.CornerRadius = UDim.new(0, 8)
+	npcHealCorner.Parent = npcHealBar
+	local npcHealStroke = Instance.new("UIStroke")
+	npcHealStroke.Thickness = 1.5
+	npcHealStroke.Color = Color3.fromRGB(255, 190, 95)
+	npcHealStroke.Transparency = 0.25
+	npcHealStroke.Parent = npcHealBar
+	local npcHealText = Instance.new("TextLabel")
+	npcHealText.Name = "HealText"
+	npcHealText.Size = UDim2.fromScale(1, 1)
+	npcHealText.BackgroundTransparency = 1
+	npcHealText.Font = Enum.Font.GothamBold
+	npcHealText.TextSize = 16
+	npcHealText.TextColor3 = Color3.fromRGB(255, 220, 150)
+	npcHealText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	npcHealText.TextStrokeTransparency = 0.35
+	npcHealText.Text = "HEAL DOWN 25% · 0.0s"
+	npcHealText.Parent = npcHealBar
+
+	local npcVulnBar = Instance.new("Frame")
+	npcVulnBar.Name = "NpcIncomingDamageBonusBar"
+	npcVulnBar.Visible = false
+	npcVulnBar.Size = UDim2.new(1, -16, 0, 30)
+	npcVulnBar.Position = UDim2.new(0, 8, 0, 204)
+	npcVulnBar.BackgroundColor3 = Color3.fromRGB(48, 22, 62)
+	npcVulnBar.BackgroundTransparency = 0.1
+	npcVulnBar.BorderSizePixel = 0
+	npcVulnBar.ZIndex = 19
+	npcVulnBar.Parent = npcEnemyCard
+	local npcVulnCorner = Instance.new("UICorner")
+	npcVulnCorner.CornerRadius = UDim.new(0, 8)
+	npcVulnCorner.Parent = npcVulnBar
+	local npcVulnStroke = Instance.new("UIStroke")
+	npcVulnStroke.Thickness = 1.5
+	npcVulnStroke.Color = Color3.fromRGB(210, 140, 255)
+	npcVulnStroke.Transparency = 0.25
+	npcVulnStroke.Parent = npcVulnBar
+	local npcVulnText = Instance.new("TextLabel")
+	npcVulnText.Name = "VulnText"
+	npcVulnText.Size = UDim2.fromScale(1, 1)
+	npcVulnText.BackgroundTransparency = 1
+	npcVulnText.Font = Enum.Font.GothamBold
+	npcVulnText.TextSize = 16
+	npcVulnText.TextColor3 = Color3.fromRGB(230, 190, 255)
+	npcVulnText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	npcVulnText.TextStrokeTransparency = 0.35
+	npcVulnText.Text = "MARKED +0% · 0.0s"
+	npcVulnText.Parent = npcVulnBar
 
 	local deckRow = Instance.new("Frame")
 	deckRow.Name = "DeckRow"
@@ -1621,6 +1719,15 @@ local function getAbilityEffectStyle(effectType)
 	if effectType == "EnemyPartyAttackDown" then
 		return Color3.fromRGB(190, 130, 255), "ATK DOWN"
 	end
+	if effectType == "StunOneEnemy" or effectType == "StunAllEnemies" then
+		return Color3.fromRGB(255, 110, 110), "STUN"
+	end
+	if effectType == "SealOneEnemy" then
+		return Color3.fromRGB(255, 215, 95), "SEAL"
+	end
+	if effectType == "DisableDodgeAllEnemies" then
+		return Color3.fromRGB(110, 230, 255), "DODGE OFF"
+	end
 	return Color3.fromRGB(220, 220, 220), "BUFF"
 end
 
@@ -2005,6 +2112,12 @@ local function playAbilityEvents(payload)
 					playAbilityPulse(npc, color, abilityEvent.effectType)
 				end
 			end
+			if abilityEvent.effectType == "StunOneEnemy" or abilityEvent.effectType == "StunAllEnemies" then
+				local npc = uiState.npcEnemyCardFrame
+				if npc and npc.Parent then
+					playAbilityPulse(npc, color, abilityEvent.effectType)
+				end
+			end
 			if caster then
 				-- Blood animation sequence for TestBattleCard
 				if abilityEvent.effectType == "Fireball" and caster:GetAttribute("CardId") == "TestBattleCard" then
@@ -2100,6 +2213,157 @@ local function stopNpcOutgoingDrDebuffUi()
 	end
 end
 
+local function stopNpcHealingDebuffUi()
+	if uiState.npcHealingDebuffHbConn then
+		uiState.npcHealingDebuffHbConn:Disconnect()
+		uiState.npcHealingDebuffHbConn = nil
+	end
+	uiState.npcHealingDebuffEndClock = nil
+	uiState.npcHealingDebuffPercent = nil
+	local card = uiState.npcEnemyCardFrame
+	local bar = card and card:FindFirstChild("NpcHealingDebuffBar")
+	if bar then
+		bar.Visible = false
+	end
+end
+
+local function stopNpcIncomingDamageBonusUi()
+	if uiState.npcIncomingDamageBonusHbConn then
+		uiState.npcIncomingDamageBonusHbConn:Disconnect()
+		uiState.npcIncomingDamageBonusHbConn = nil
+	end
+	uiState.npcIncomingDamageBonusEndClock = nil
+	uiState.npcIncomingDamageBonusFraction = nil
+	local card = uiState.npcEnemyCardFrame
+	local bar = card and card:FindFirstChild("NpcIncomingDamageBonusBar")
+	if bar then
+		bar.Visible = false
+	end
+end
+
+local function stopNpcStunUi()
+	if uiState.npcStunHbConn then
+		uiState.npcStunHbConn:Disconnect()
+		uiState.npcStunHbConn = nil
+	end
+	uiState.npcStunEndClock = nil
+	local card = uiState.npcEnemyCardFrame
+	local bar = card and card:FindFirstChild("NpcStunDebuffBar")
+	if bar then
+		bar.Visible = false
+	end
+end
+
+local function syncNpcHealingDebuffFromPayload(payload)
+	local bar = uiState.npcEnemyCardFrame and uiState.npcEnemyCardFrame:FindFirstChild("NpcHealingDebuffBar")
+	local lbl = bar and bar:FindFirstChild("HealText")
+	if not (bar and lbl) then
+		return
+	end
+	local rem = tonumber(payload and payload.npcHealingReductionRemainingSec) or 0
+	local pct = tonumber(payload and payload.npcHealingReductionFraction) or 0
+	if rem > 0 and pct > 0 then
+		uiState.npcHealingDebuffEndClock = os.clock() + rem
+		uiState.npcHealingDebuffPercent = pct
+		bar.Visible = true
+		local pctDisp = math.floor(pct * 100 + 0.5)
+		lbl.Text = string.format("HEAL DOWN %d%% · %.1fs", pctDisp, rem)
+		if not uiState.npcHealingDebuffHbConn then
+			uiState.npcHealingDebuffHbConn = RunService.Heartbeat:Connect(function()
+				if not bar.Parent then
+					return
+				end
+				if not uiState.npcHealingDebuffEndClock or not uiState.npcHealingDebuffPercent then
+					bar.Visible = false
+					return
+				end
+				local left = math.max(0, uiState.npcHealingDebuffEndClock - os.clock())
+				if left <= 0.05 then
+					bar.Visible = false
+					uiState.npcHealingDebuffEndClock = nil
+					return
+				end
+				local p = math.floor(uiState.npcHealingDebuffPercent * 100 + 0.5)
+				lbl.Text = string.format("HEAL DOWN %d%% · %.1fs", p, left)
+			end)
+		end
+	else
+		stopNpcHealingDebuffUi()
+	end
+end
+
+local function syncNpcIncomingDamageBonusFromPayload(payload)
+	local bar = uiState.npcEnemyCardFrame and uiState.npcEnemyCardFrame:FindFirstChild("NpcIncomingDamageBonusBar")
+	local lbl = bar and bar:FindFirstChild("VulnText")
+	if not (bar and lbl) then
+		return
+	end
+	local rem = tonumber(payload and payload.npcIncomingDamageBonusRemainingSec) or 0
+	local frac = tonumber(payload and payload.npcIncomingDamageBonusFraction) or 0
+	if rem > 0 and frac > 0 then
+		uiState.npcIncomingDamageBonusEndClock = os.clock() + rem
+		uiState.npcIncomingDamageBonusFraction = frac
+		bar.Visible = true
+		local pctDisp = math.floor(frac * 100 + 0.5)
+		lbl.Text = string.format("MARKED +%d%% · %.1fs", pctDisp, rem)
+		if not uiState.npcIncomingDamageBonusHbConn then
+			uiState.npcIncomingDamageBonusHbConn = RunService.Heartbeat:Connect(function()
+				if not bar.Parent then
+					return
+				end
+				if not uiState.npcIncomingDamageBonusEndClock or not uiState.npcIncomingDamageBonusFraction then
+					bar.Visible = false
+					return
+				end
+				local left = math.max(0, uiState.npcIncomingDamageBonusEndClock - os.clock())
+				if left <= 0.05 then
+					bar.Visible = false
+					uiState.npcIncomingDamageBonusEndClock = nil
+					return
+				end
+				local p = math.floor(uiState.npcIncomingDamageBonusFraction * 100 + 0.5)
+				lbl.Text = string.format("MARKED +%d%% · %.1fs", p, left)
+			end)
+		end
+	else
+		stopNpcIncomingDamageBonusUi()
+	end
+end
+
+local function syncNpcStunFromPayload(payload)
+	local bar = uiState.npcEnemyCardFrame and uiState.npcEnemyCardFrame:FindFirstChild("NpcStunDebuffBar")
+	local lbl = bar and bar:FindFirstChild("StunText")
+	if not (bar and lbl) then
+		return
+	end
+	local rem = tonumber(payload and payload.npcStunRemainingSec) or 0
+	if rem > 0 then
+		uiState.npcStunEndClock = os.clock() + rem
+		bar.Visible = true
+		lbl.Text = string.format("STUN · %.1fs", rem)
+		if not uiState.npcStunHbConn then
+			uiState.npcStunHbConn = RunService.Heartbeat:Connect(function()
+				if not bar.Parent then
+					return
+				end
+				if not uiState.npcStunEndClock then
+					bar.Visible = false
+					return
+				end
+				local left = math.max(0, uiState.npcStunEndClock - os.clock())
+				if left <= 0.05 then
+					bar.Visible = false
+					uiState.npcStunEndClock = nil
+					return
+				end
+				lbl.Text = string.format("STUN · %.1fs", left)
+			end)
+		end
+	else
+		stopNpcStunUi()
+	end
+end
+
 local function syncNpcOutgoingDrDebuffFromPayload(payload)
 	local bar = uiState.npcEnemyCardFrame and uiState.npcEnemyCardFrame:FindFirstChild("NpcOutgoingDrDebuffBar")
 	local lbl = bar and bar:FindFirstChild("DrText")
@@ -2140,6 +2404,9 @@ end
 
 local function hideBattleUi()
 	stopNpcOutgoingDrDebuffUi()
+	stopNpcHealingDebuffUi()
+	stopNpcIncomingDamageBonusUi()
+	stopNpcStunUi()
 	stopDeckSpeedBuffUi()
 	if uiState.sessionId then
 		DamagePopupManager.ClearSession(uiState.sessionId)
@@ -2248,6 +2515,35 @@ battleStateEvent.OnClientEvent:Connect(function(payload)
 		setNpcEnemyHp(payload)
 		setNpcEnemyHint(payload)
 		syncNpcOutgoingDrDebuffFromPayload(payload)
+		syncNpcHealingDebuffFromPayload(payload)
+		syncNpcIncomingDamageBonusFromPayload(payload)
+		syncNpcStunFromPayload(payload)
+		if type(payload.entryNpcAttacks) == "table" and #payload.entryNpcAttacks > 0 then
+			local root = uiState.rootFrame
+			local npcCard = uiState.npcEnemyCardFrame
+			local ENTRY_MULTI_HIT_STAGGER_SEC = 0.13
+			for i, attack in ipairs(payload.entryNpcAttacks) do
+				local displayIndex = tonumber(attack and attack.entryHitIndex) or i
+				local delay = math.max(0, displayIndex - 1) * ENTRY_MULTI_HIT_STAGGER_SEC
+				animateSingleDeckAttack(attack.attackerSlotIndex, attack.attackerCardId)
+				if root and root.Parent and npcCard and npcCard.Parent then
+					local dmg = tonumber(attack.dealtDamage) or 0
+					local cat = DamagePopupManager.MapCategory(dmg, attack.isCrit, attack.isDodged, attack.absorbed)
+					DamagePopupManager.EnqueueFloating({
+						sessionId = payload.sessionId,
+						targetKey = "pve_npc",
+						rootFrame = root,
+						targetGui = npcCard,
+						amount = dmg,
+						absorbed = attack.absorbed,
+						category = cat,
+						contextKind = "PlayerToNpc",
+						sequence = tonumber(attack.hitSeq) or (tonumber(payload.hitSeq) or 0),
+						staggerDelay = delay,
+					})
+				end
+			end
+		end
 		local dealtToNpc = tonumber(payload.dealtDamage) or 0
 		if dealtToNpc > 0 then
 			animateSingleDeckAttack(payload.attackerSlotIndex, payload.attackerCardId)

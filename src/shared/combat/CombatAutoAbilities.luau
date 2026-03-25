@@ -31,10 +31,14 @@ function CombatAutoAbilities.TryApply(allies, casterState, now, abilityEvents, o
 	local durationSeconds = math.max(0, tonumber(abilityDef.DurationSeconds) or 0)
 	local resolved = EffectResolver.ApplyEffect(abilityDef.EffectType, {
 		allies = aliveAllies,
+		opponents = options and options.opponents,
 		caster = casterState,
 		now = now,
 		magnitude = magnitude,
 		durationSeconds = durationSeconds,
+		procDamageBonus = tonumber(abilityDef.ProcDamageBonus) or nil,
+		hitCount = tonumber(abilityDef.HitCount) or nil,
+		healingReductionFraction = tonumber(abilityDef.HealingReductionFraction) or nil,
 		session = options and options.session,
 		mode = options and options.mode,
 	})
@@ -79,23 +83,41 @@ local function appendOnEntryEvent(abilityEvents, options, casterState, abilityDe
 end
 
 -- PvP: run once when both decks are in play (before the combat tick loop).
-function CombatAutoAbilities.ApplyOnBattleStartPvp(session, now, abilityEvents)
+function CombatAutoAbilities.ApplyOnBattleStartPvp(session, now, abilityEvents, entryAttacks)
 	if not session then
 		return
 	end
 	local teamA = session.cardStatesByUserId[session.playerAUserId]
 	local teamB = session.cardStatesByUserId[session.playerBUserId]
-	local function applySide(casters, opponents, attackerUserId)
-		for _, caster in ipairs(CombatFormulas.FilterAlive(casters)) do
+	entryAttacks = entryAttacks or {}
+	local function applySide(casters, opponents, attackerUserId, targetUserId)
+		local aliveCasters = CombatFormulas.FilterAlive(casters)
+		local aliveOpponents = CombatFormulas.FilterAlive(opponents)
+		for _, caster in ipairs(aliveCasters) do
 			local def = CardAbilityConfig.GetAbility(caster.abilityId)
-			if def and def.Trigger == "OnEntry" and def.EffectType == "EnemyPartyAttackDown" then
+			if def and def.Trigger == "OnEntry" then
 				local resolved = EffectResolver.ApplyEffect(def.EffectType, {
 					caster = caster,
-					opponents = CombatFormulas.FilterAlive(opponents),
+					allies = aliveCasters,
+					opponents = aliveOpponents,
 					now = now,
 					magnitude = def.Magnitude,
 					durationSeconds = def.DurationSeconds,
+					procDamageBonus = tonumber(def.ProcDamageBonus) or nil,
+					hitCount = tonumber(def.HitCount) or nil,
+					healingReductionFraction = tonumber(def.HealingReductionFraction) or nil,
+					vsMageDamageReductionFraction = tonumber(def.VsMageDamageReductionFraction) or nil,
+					session = session,
 				})
+				if resolved and type(resolved.entryAttacks) == "table" then
+					for _, attack in ipairs(resolved.entryAttacks) do
+						if type(attack) == "table" then
+							attack.attackerUserId = attackerUserId
+							attack.targetUserId = targetUserId
+							table.insert(entryAttacks, attack)
+						end
+					end
+				end
 				if resolved and resolved.applied then
 					appendOnEntryEvent(
 						abilityEvents,
@@ -111,33 +133,47 @@ function CombatAutoAbilities.ApplyOnBattleStartPvp(session, now, abilityEvents)
 			end
 		end
 	end
-	applySide(teamA, teamB, session.playerAUserId)
-	applySide(teamB, teamA, session.playerBUserId)
+	applySide(teamA, teamB, session.playerAUserId, session.playerBUserId)
+	applySide(teamB, teamA, session.playerBUserId, session.playerAUserId)
 end
 
 -- PvE: single NPC enemy — debuff its outgoing damage only.
-function CombatAutoAbilities.ApplyOnBattleStartNpc(session, now, abilityEvents)
+function CombatAutoAbilities.ApplyOnBattleStartNpc(session, now, abilityEvents, entryNpcAttacks)
 	if not session then
 		return
 	end
-	for _, caster in ipairs(CombatFormulas.FilterAlive(session.playerCardStates)) do
+	local aliveCasters = CombatFormulas.FilterAlive(session.playerCardStates)
+	entryNpcAttacks = entryNpcAttacks or {}
+	for _, caster in ipairs(aliveCasters) do
 		local def = CardAbilityConfig.GetAbility(caster.abilityId)
-		if def and def.Trigger == "OnEntry" and def.EffectType == "EnemyPartyAttackDown" then
+		if def and def.Trigger == "OnEntry" then
 			local resolved = EffectResolver.ApplyEffect(def.EffectType, {
 				caster = caster,
+				allies = aliveCasters,
 				now = now,
 				magnitude = def.Magnitude,
 				durationSeconds = def.DurationSeconds,
+				procDamageBonus = tonumber(def.ProcDamageBonus) or nil,
+				hitCount = tonumber(def.HitCount) or nil,
+				healingReductionFraction = tonumber(def.HealingReductionFraction) or nil,
+				vsMageDamageReductionFraction = tonumber(def.VsMageDamageReductionFraction) or nil,
 				session = session,
 				mode = "Npc",
 			})
+			if resolved and type(resolved.entryNpcAttacks) == "table" then
+				for _, attack in ipairs(resolved.entryNpcAttacks) do
+					if type(attack) == "table" then
+						table.insert(entryNpcAttacks, attack)
+					end
+				end
+			end
 			if resolved and resolved.applied then
 				appendOnEntryEvent(
 					abilityEvents,
 					nil,
 					caster,
 					def,
-					resolved.targetSlotIndices or { 0 },
+					resolved.targetSlotIndices or {},
 					tonumber(resolved.magnitude) or 0,
 					tonumber(resolved.durationSeconds) or 0,
 					now

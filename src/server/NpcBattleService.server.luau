@@ -40,7 +40,7 @@ local NPC_REGISTRY = {
 		HoldDuration = 0.12,
 		NpcCardId = "PerfectCell",
 		NpcCardName = "Perfect Cell",
-		NpcMaxHealth = 1000000000,
+		NpcMaxHealth = 10000000000,
 		NpcAttack = 4000,
 	},
 	Aokoji = {
@@ -53,7 +53,7 @@ local NPC_REGISTRY = {
 		HoldDuration = 0.12,
 		NpcCardId = "Aokoji",
 		NpcCardName = "Aokoji",
-		NpcMaxHealth = 1000000000,
+		NpcMaxHealth = 10000000000,
 		NpcAttack = 4000000,
 	},
 }
@@ -405,6 +405,14 @@ local function sendNpcState(player, session, payload)
 	out.npcOutgoingAttackDebuffPercent = tonumber(session.npcOutgoingAttackDebuffPercent) or 0
 	local untilT = tonumber(session.npcOutgoingAttackDebuffUntil) or 0
 	out.npcOutgoingAttackDebuffRemainingSec = (untilT > now) and (untilT - now) or 0
+	out.npcHealingReductionFraction = tonumber(session.npcHealingReductionFraction) or 0
+	local healRedUntil = tonumber(session.npcHealingReductionUntil) or 0
+	out.npcHealingReductionRemainingSec = (healRedUntil > now) and (healRedUntil - now) or 0
+	local npcStunUntil = tonumber(session.npcStunUntil) or 0
+	out.npcStunRemainingSec = (npcStunUntil > now) and (npcStunUntil - now) or 0
+	out.npcIncomingDamageBonusFraction = tonumber(session.npcIncomingDamageBonusFraction) or 0
+	local vulnUntil = tonumber(session.npcIncomingDamageBonusUntil) or 0
+	out.npcIncomingDamageBonusRemainingSec = (vulnUntil > now) and (vulnUntil - now) or 0
 	out.playerCardStates = buildPlayerCardStatePayload(session)
 	sendState(player, out)
 end
@@ -445,7 +453,7 @@ local function runNpcAttackLoop(player, session)
 				cardState.nextAbilityAt = tonumber(attacker.nextAbilityAt) or tonumber(cardState.nextAbilityAt) or 0
 
 				if cardState.abilityId ~= "" and cardState.nextAbilityAt and cardState.nextAbilityAt <= now then
-					if CombatAutoAbilities.TryApply(session.playerCardStates, cardState, now, abilityEvents, {}) then
+					if CombatAutoAbilities.TryApply(session.playerCardStates, cardState, now, abilityEvents, { session = session, mode = "Npc" }) then
 						dealtAny = true
 					end
 					cardState.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(cardState.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
@@ -455,7 +463,15 @@ local function runNpcAttackLoop(player, session)
 				if cardState.nextAttackAt <= now then
 					local rawDamage = CombatFormulas.GetEffectiveAttack(cardState, now)
 					local hitResult = DamagePipeline.ResolveHit(cardState, nil, rawDamage, now)
-					DamagePipeline.ApplyDamageToNpc(session, hitResult.finalDamage)
+					local dealtDamage = hitResult.finalDamage
+					local incomingBonusUntil = tonumber(session.npcIncomingDamageBonusUntil) or 0
+					if incomingBonusUntil > now then
+						local incomingBonusFraction = math.clamp(tonumber(session.npcIncomingDamageBonusFraction) or 0, 0, 2)
+						if incomingBonusFraction > 0 then
+							dealtDamage = math.max(0, math.floor(dealtDamage * (1 + incomingBonusFraction)))
+						end
+					end
+					DamagePipeline.ApplyDamageToNpc(session, dealtDamage)
 					cardState.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(cardState, now, DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS)
 					attacker.nextAttackAt = cardState.nextAttackAt
 					dealtAny = true
@@ -463,7 +479,7 @@ local function runNpcAttackLoop(player, session)
 					sendNpcState(player, session, {
 						attackerCardId = attacker.cardId,
 						attackerSlotIndex = attacker.slotIndex,
-						dealtDamage = hitResult.finalDamage,
+						dealtDamage = dealtDamage,
 						rawDamage = hitResult.rawDamage,
 						isCrit = hitResult.isCrit,
 						isDodged = hitResult.isDodged,
@@ -501,52 +517,58 @@ local function runNpcAttackLoop(player, session)
 			end
 
 			if session.nextNpcAttackAt <= now then
-				local alive = getAliveCardStates(session)
-				if #alive > 0 then
-					local target = alive[math.random(1, #alive)]
-					local rawDamage = CombatFormulas.GetEffectiveNpcOutgoingDamage(session, session.npcAttack, now)
-					local hitResult = DamagePipeline.ResolveHit({
-						cardId = session.npcCardId,
-						cardName = session.npcCardName,
-						baseAttack = session.npcAttack,
-						statBlock = {},
-					}, target, rawDamage, now)
-					pruneDeadAttackers(session)
-					local interval = CardDatabase.GetNpcCounterAttackIntervalSeconds(session.npcCardId, NPC_COUNTER_ATTACK_INTERVAL_SECONDS)
-					session.nextNpcAttackAt = now + interval
-					dealtAny = true
+				local npcStunUntil = tonumber(session.npcStunUntil) or 0
+				if npcStunUntil > now then
+					-- Stunned NPC: skip its attack while stun is active.
+					session.nextNpcAttackAt = npcStunUntil + 0.01
+				else
+					local alive = getAliveCardStates(session)
+					if #alive > 0 then
+						local target = alive[math.random(1, #alive)]
+						local rawDamage = CombatFormulas.GetEffectiveNpcOutgoingDamage(session, session.npcAttack, now)
+						local hitResult = DamagePipeline.ResolveHit({
+							cardId = session.npcCardId,
+							cardName = session.npcCardName,
+							baseAttack = session.npcAttack,
+							statBlock = {},
+						}, target, rawDamage, now)
+						pruneDeadAttackers(session)
+						local interval = CardDatabase.GetNpcCounterAttackIntervalSeconds(session.npcCardId, NPC_COUNTER_ATTACK_INTERVAL_SECONDS)
+						session.nextNpcAttackAt = now + interval
+						dealtAny = true
 
-					sendNpcState(player, session, {
-						npcAttackDealtDamage = hitResult.finalDamage,
-						npcAttackRawDamage = hitResult.rawDamage,
-						npcAttackIsCrit = hitResult.isCrit,
-						npcAttackIsDodged = hitResult.isDodged,
-						npcAttackAbsorbed = hitResult.absorbed,
-						npcAttackTargetSlotIndex = target.slotIndex,
-						npcAttackTargetCardId = target.cardId,
-						abilityEvents = abilityEvents,
-					})
-					lastHitBySlot[target.slotIndex] = {
-						cardId = session.npcCardId,
-						cardName = session.npcCardName,
-					}
-					if target.health <= 0 and not target.deathNotified then
-						target.deathNotified = true
-						local killer = lastHitBySlot[target.slotIndex]
-						CombatEventBus.Fire("OnDeath", {
-							session = session,
-							unit = target,
-							killer = killer,
+						sendNpcState(player, session, {
+							npcAttackDealtDamage = hitResult.finalDamage,
+							npcAttackRawDamage = hitResult.rawDamage,
+							npcAttackIsCrit = hitResult.isCrit,
+							npcAttackIsDodged = hitResult.isDodged,
+							npcAttackAbsorbed = hitResult.absorbed,
+							npcAttackTargetSlotIndex = target.slotIndex,
+							npcAttackTargetCardId = target.cardId,
+							abilityEvents = abilityEvents,
 						})
-						if killer then
-							CombatEventBus.Fire("OnKill", {
+						lastHitBySlot[target.slotIndex] = {
+							cardId = session.npcCardId,
+							cardName = session.npcCardName,
+						}
+						if target.health <= 0 and not target.deathNotified then
+							target.deathNotified = true
+							local killer = lastHitBySlot[target.slotIndex]
+							CombatEventBus.Fire("OnDeath", {
 								session = session,
-								attacker = killer,
-								victim = target,
+								unit = target,
+								killer = killer,
 							})
+							if killer then
+								CombatEventBus.Fire("OnKill", {
+									session = session,
+									attacker = killer,
+									victim = target,
+								})
+							end
 						end
+						stateSentThisTick = true
 					end
-					stateSentThisTick = true
 				end
 			end
 
@@ -601,6 +623,8 @@ local function startSession(player, record)
 		npcAttack = math.max(1, math.floor(record.NpcAttack or 100)),
 		npcOutgoingAttackDebuffPercent = 0,
 		npcOutgoingAttackDebuffUntil = 0,
+		-- Control effects on the NPC (used to gate its attack loop).
+		npcStunUntil = 0,
 		npcDeathNotified = false,
 		hitSeq = 0,
 		playerDeck = {},
@@ -828,6 +852,15 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 					speedBoostUntil = 0,
 					damageBoostMagnitude = 0,
 					damageBoostUntil = 0,
+					-- Generic on-hit damage procs (see AbilityDatabase / EffectResolver / DamagePipeline).
+					onHitDamageProcs = {},
+					-- Reduced healing debuff (fraction 0..1), applied in DamagePipeline.ApplyHealToUnit.
+					healingReductionFraction = 0,
+					healingReductionUntil = 0,
+					-- Control effects (implemented server-side by gating loops + DamagePipeline).
+					stunUntil = 0,
+					sealUntil = 0,
+					dodgeDisabledUntil = 0,
 					nextAttackAt = 0,
 					nextAbilityAt = 0,
 					deathNotified = false,
@@ -841,7 +874,14 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 
 		local entryNow = os.clock()
 		local entryEvents = {}
-		CombatAutoAbilities.ApplyOnBattleStartNpc(session, entryNow, entryEvents)
+		local entryNpcAttacks = {}
+		CombatAutoAbilities.ApplyOnBattleStartNpc(session, entryNow, entryEvents, entryNpcAttacks)
+		if #entryNpcAttacks > 0 then
+			for _, attack in ipairs(entryNpcAttacks) do
+				session.hitSeq = (session.hitSeq or 0) + 1
+				attack.hitSeq = session.hitSeq
+			end
+		end
 
 		session.attackState = {}
 		if #deck > 0 then
@@ -887,6 +927,10 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 		}
 		if #entryEvents > 0 then
 			npcStatePayload.abilityEvents = entryEvents
+			npcStatePayload.reason = "BattleStarted"
+		end
+		if #entryNpcAttacks > 0 then
+			npcStatePayload.entryNpcAttacks = entryNpcAttacks
 			npcStatePayload.reason = "BattleStarted"
 		end
 		sendNpcState(player, session, npcStatePayload)

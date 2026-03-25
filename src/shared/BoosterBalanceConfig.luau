@@ -12,7 +12,7 @@ BoosterBalanceConfig.Packs = {
 			Common = 60,
 			Uncommon = 25,
 			Rare = 10,
-			Epic = 4,
+			Mythic = 4,
 			Legendary = 1,
 		},
 	},
@@ -26,7 +26,7 @@ BoosterBalanceConfig.Packs = {
 			Common = 35,
 			Uncommon = 30,
 			Rare = 20,
-			Epic = 12,
+			Mythic = 12,
 			Legendary = 3,
 		},
 	},
@@ -36,7 +36,7 @@ BoosterBalanceConfig.DefaultRarityRates = {
 	Common = 60,
 	Uncommon = 25,
 	Rare = 10,
-	Epic = 4,
+	Mythic = 4,
 	Legendary = 1,
 }
 

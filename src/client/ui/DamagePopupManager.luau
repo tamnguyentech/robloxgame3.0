@@ -12,13 +12,48 @@ local SettingsUIController = require(script.Parent:WaitForChild("controllers"):W
 
 local DamagePopupManager = {}
 
-local LANE_COUNT = 7
-local LANE_CENTER = 4
-local LANE_SPACING_PX = 14
 local BURST_WINDOW_SEC = 0.2
 local MAX_PER_TARGET = 10
-local GLOBAL_MAX_POPUPS = 50
+local GLOBAL_MAX_POPUPS = 80
 local STAGGER_SEC = 0.012
+local STACK_X_JITTER_PX = 3
+
+-- Gradient palette inspired by UltraRareTextEffect (HSV sweep).
+local GRADIENT_PALETTE = {
+	{ h = 0.12, s = 0.92, v = 1.00 },
+	{ h = 0.14, s = 0.50, v = 1.00 },
+	{ h = 0.00, s = 0.00, v = 1.00 },
+	{ h = 0.54, s = 0.60, v = 1.00 },
+	{ h = 0.75, s = 0.65, v = 1.00 },
+	{ h = 0.12, s = 0.92, v = 1.00 },
+}
+
+local function buildGradientSequence(huePhase)
+	local n = #GRADIENT_PALETTE
+	local kps = table.create(n)
+	for i = 1, n do
+		local frac = (i - 1) / (n - 1)
+		local p = GRADIENT_PALETTE[i]
+		local h = (p.h + huePhase) % 1
+		kps[i] = ColorSequenceKeypoint.new(frac, Color3.fromHSV(h, p.s, p.v))
+	end
+	return ColorSequence.new(kps)
+end
+
+local function attachGradient(label, profile, seq)
+	local gradient = Instance.new("UIGradient")
+	gradient.Name = "DamageGradient"
+	local phase = ((tonumber(seq) or 0) % 20) / 20
+	gradient.Color = buildGradientSequence(phase)
+	gradient.Rotation = -15
+	gradient.Parent = label
+	local sweepDuration = math.max(0.8, tonumber(profile.GradientSweepSeconds) or 1.6)
+	TweenService:Create(
+		gradient,
+		TweenInfo.new(sweepDuration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1),
+		{ Rotation = 345 }
+	):Play()
+end
 
 local globalActiveCount = 0
 
@@ -176,16 +211,15 @@ function DamagePopupManager.EnqueueFloating(spec)
 		end
 		st.count += 1
 
-		st.laneCursor = (st.laneCursor % LANE_COUNT) + 1
-		local lane = st.laneCursor
-		local offsetLaneX = (lane - LANE_CENTER) * LANE_SPACING_PX
-		local burstRampY = -math.min(24, burstN * 3)
+		local profile = mergeProfile(contextKind, category)
+		local stackSpacingPx = tonumber(profile.VerticalStackSpacingPx) or 16
+		local stackOffsetY = -(math.max(0, burstN - 1) * stackSpacingPx)
 		local jx, jy = jitterFromSeq(seq, targetKey, burstN)
+		jx = math.clamp(jx, -STACK_X_JITTER_PX, STACK_X_JITTER_PX)
 		if category == "CritDamage" then
-			jx += (deterministicUnit(seq + 3) - 0.5) * 8
+			jx += (deterministicUnit(seq + 3) - 0.5) * 4
 		end
 
-		local profile = mergeProfile(contextKind, category)
 		local amount = math.max(0, math.floor(tonumber(spec.amount) or 0))
 		local absorbedAmt = tonumber(spec.absorbed) or 0
 		local text = formatAmountText(profile, amount, category, absorbedAmt)
@@ -198,9 +232,9 @@ function DamagePopupManager.EnqueueFloating(spec)
 		local cx = center.X - rootAbs.X
 		local cy = center.Y - rootAbs.Y
 
-		local y0 = cy + (tonumber(profile.RootStartOffsetY) or -12) + burstRampY + jy
-		local y1 = cy + (tonumber(profile.RootEndOffsetY) or -72) + burstRampY * 0.5 + jy
-		local ox = offsetLaneX + jx
+		local y0 = cy + (tonumber(profile.RootStartOffsetY) or -12) + stackOffsetY + jy
+		local y1 = cy + (tonumber(profile.RootEndOffsetY) or -72) + stackOffsetY + jy
+		local ox = jx
 
 		local size = profile.Size or UDim2.fromOffset(96, 26)
 		local textSize = profile.TextSize or 16
@@ -227,6 +261,7 @@ function DamagePopupManager.EnqueueFloating(spec)
 		label.TextStrokeTransparency = profile.TextStrokeTransparency or 0
 		label.ZIndex = zIndex
 		label.Parent = rootFrame
+		attachGradient(label, profile, seq)
 
 		local uiScale = Instance.new("UIScale")
 		local punch = tonumber(profile.ScalePunch) or 1
@@ -243,7 +278,9 @@ function DamagePopupManager.EnqueueFloating(spec)
 
 		globalActiveCount += 1
 
-		local dur = profile.DurationSeconds or 0.42
+		local dur = profile.DurationSeconds or 1.2
+		local riseDur = math.max(0.1, tonumber(profile.RiseDurationSeconds) or math.min(0.35, dur * 0.35))
+		local fadeDur = math.max(0.2, tonumber(profile.FadeDurationSeconds) or math.max(0.3, dur - riseDur))
 		local once
 		once = RunService.Heartbeat:Connect(function()
 			if once then
@@ -260,21 +297,32 @@ function DamagePopupManager.EnqueueFloating(spec)
 			center = targetGui.AbsolutePosition + (targetGui.AbsoluteSize * 0.5)
 			cx = center.X - rootAbs.X
 			cy = center.Y - rootAbs.Y
-			y0 = cy + (tonumber(profile.RootStartOffsetY) or -12) + burstRampY + jy
-			y1 = cy + (tonumber(profile.RootEndOffsetY) or -72) + burstRampY * 0.5 + jy
+			y0 = cy + (tonumber(profile.RootStartOffsetY) or -12) + stackOffsetY + jy
+			y1 = cy + (tonumber(profile.RootEndOffsetY) or -72) + stackOffsetY + jy
 			label.Position = UDim2.fromOffset(cx + ox, y0)
 
 			TweenService:Create(
 				label,
-				TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				TweenInfo.new(riseDur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 				{
 					Position = UDim2.fromOffset(cx + ox, y1),
-					TextTransparency = 1,
-					TextStrokeTransparency = 1,
 				}
 			):Play()
+			task.delay(riseDur * 0.35, function()
+				if not (label and label.Parent) then
+					return
+				end
+				TweenService:Create(
+					label,
+					TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+					{
+						TextTransparency = 1,
+						TextStrokeTransparency = 1,
+					}
+				):Play()
+			end)
 
-			task.delay(dur + 0.15, function()
+			task.delay(riseDur + fadeDur + 0.15, function()
 				if label and label.Parent then
 					label:Destroy()
 				end
@@ -353,16 +401,15 @@ function DamagePopupManager.EnqueueOnCard(spec)
 		end
 		st.count += 1
 
-		st.laneCursor = (st.laneCursor % LANE_COUNT) + 1
-		local lane = st.laneCursor
-		local offsetLaneX = (lane - LANE_CENTER) * LANE_SPACING_PX
-		local burstRampY = -math.min(24, burstN * 3)
+		local profile = mergeProfile(contextKind, category)
+		local stackSpacingPx = tonumber(profile.VerticalStackSpacingPx) or 16
+		local stackOffsetY = -(math.max(0, burstN - 1) * stackSpacingPx)
 		local jx, jy = jitterFromSeq(seq, targetKey, burstN)
+		jx = math.clamp(jx, -STACK_X_JITTER_PX, STACK_X_JITTER_PX)
 		if category == "CritDamage" then
-			jx += (deterministicUnit(seq + 9) - 0.5) * 8
+			jx += (deterministicUnit(seq + 9) - 0.5) * 4
 		end
 
-		local profile = mergeProfile(contextKind, category)
 		local amount = math.max(0, math.floor(tonumber(spec.amount) or 0))
 		local absorbedAmt = tonumber(spec.absorbed) or 0
 		local text = formatAmountText(profile, amount, category, absorbedAmt)
@@ -380,9 +427,9 @@ function DamagePopupManager.EnqueueOnCard(spec)
 		local sz = cardFrame.AbsoluteSize
 		local w = math.max(1, sz.X)
 		local h = math.max(1, sz.Y)
-		local px = w * 0.5 + offsetLaneX + jx
-		local py0 = h * 0.38 + burstRampY + jy
-		local py1 = h * 0.1 + burstRampY * 0.5 + jy
+		local px = w * 0.5 + jx
+		local py0 = h * 0.38 + stackOffsetY + jy
+		local py1 = h * 0.1 + stackOffsetY + jy
 
 		local label = Instance.new("TextLabel")
 		label.Name = "DamageNumber"
@@ -398,6 +445,7 @@ function DamagePopupManager.EnqueueOnCard(spec)
 		label.TextStrokeTransparency = profile.TextStrokeTransparency or 0
 		label.ZIndex = zIndex
 		label.Parent = cardFrame
+		attachGradient(label, profile, seq)
 
 		local uiScale = Instance.new("UIScale")
 		local punch = tonumber(profile.ScalePunch) or 1
@@ -414,7 +462,9 @@ function DamagePopupManager.EnqueueOnCard(spec)
 
 		globalActiveCount += 1
 
-		local dur = profile.DurationSeconds or 0.42
+		local dur = profile.DurationSeconds or 1.2
+		local riseDur = math.max(0.1, tonumber(profile.RiseDurationSeconds) or math.min(0.35, dur * 0.35))
+		local fadeDur = math.max(0.2, tonumber(profile.FadeDurationSeconds) or math.max(0.3, dur - riseDur))
 		local once
 		once = RunService.Heartbeat:Connect(function()
 			if once then
@@ -430,20 +480,31 @@ function DamagePopupManager.EnqueueOnCard(spec)
 			sz = cardFrame.AbsoluteSize
 			w = math.max(1, sz.X)
 			h = math.max(1, sz.Y)
-			px = w * 0.5 + offsetLaneX + jx
-			py0 = h * 0.38 + burstRampY + jy
-			py1 = h * 0.1 + burstRampY * 0.5 + jy
+			px = w * 0.5 + jx
+			py0 = h * 0.38 + stackOffsetY + jy
+			py1 = h * 0.1 + stackOffsetY + jy
 			label.Position = UDim2.fromOffset(px, py0)
 			TweenService:Create(
 				label,
-				TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				TweenInfo.new(riseDur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 				{
 					Position = UDim2.fromOffset(px, py1),
-					TextTransparency = 1,
-					TextStrokeTransparency = 1,
 				}
 			):Play()
-			task.delay(dur + 0.15, function()
+			task.delay(riseDur * 0.35, function()
+				if not (label and label.Parent) then
+					return
+				end
+				TweenService:Create(
+					label,
+					TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+					{
+						TextTransparency = 1,
+						TextStrokeTransparency = 1,
+					}
+				):Play()
+			end)
+			task.delay(riseDur + fadeDur + 0.15, function()
 				if label and label.Parent then
 					label:Destroy()
 				end

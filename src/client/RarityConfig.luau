@@ -4,8 +4,8 @@ RarityConfig.PreviewColors = {
 	Common = Color3.fromRGB(185, 185, 185),
 	Uncommon = Color3.fromRGB(85, 220, 110),
 	Rare = Color3.fromRGB(80, 150, 255),
-	Epic = Color3.fromRGB(210, 95, 255),
 	Legendary = Color3.fromRGB(255, 185, 55),
+	Mythic = Color3.fromRGB(210, 95, 255),
 	God = Color3.fromRGB(255, 70, 70),
 	Transcendent = Color3.fromRGB(0, 0, 0),
 }
@@ -14,8 +14,8 @@ RarityConfig.BorderPulseScale = {
 	Common = 1,
 	Uncommon = 1.08,
 	Rare = 1.18,
-	Epic = 1.3,
 	Legendary = 1.45,
+	Mythic = 1.3,
 	God = 1.62,
 	Transcendent = 1.85,
 }

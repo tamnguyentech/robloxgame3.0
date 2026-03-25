@@ -98,8 +98,8 @@ local function updateDerivedEffects(stats)
 	if effectLabels.Legendary then
 		effectLabels.Legendary.Text = formatPercent(rarityRates.Legendary)
 	end
-	if effectLabels.Epic then
-		effectLabels.Epic.Text = formatPercent(rarityRates.Epic)
+	if effectLabels.Mythic then
+		effectLabels.Mythic.Text = formatPercent(rarityRates.Mythic)
 	end
 	if effectLabels.Rare then
 		effectLabels.Rare.Text = formatPercent(rarityRates.Rare)
@@ -556,8 +556,8 @@ function ProfileUIController.Setup(parentContent)
 	effectLabels.God = godRateCard:FindFirstChild("ValueLabel")
 	local legendaryRateCard = createStatCard(effectsContainer, "Legendary Roll Chance", "rbxassetid://6031071050", Color3.fromRGB(255, 196, 84), true)
 	effectLabels.Legendary = legendaryRateCard:FindFirstChild("ValueLabel")
-	local epicRateCard = createStatCard(effectsContainer, "Epic Roll Chance", "rbxassetid://6031071050", Color3.fromRGB(198, 120, 255), true)
-	effectLabels.Epic = epicRateCard:FindFirstChild("ValueLabel")
+	local mythicRateCard = createStatCard(effectsContainer, "Mythic Roll Chance", "rbxassetid://6031071050", Color3.fromRGB(198, 120, 255), true)
+	effectLabels.Mythic = mythicRateCard:FindFirstChild("ValueLabel")
 	local rareRateCard = createStatCard(effectsContainer, "Rare Roll Chance", "rbxassetid://6031071050", Color3.fromRGB(120, 200, 255), true)
 	effectLabels.Rare = rareRateCard:FindFirstChild("ValueLabel")
 	local uncommonRateCard = createStatCard(effectsContainer, "Uncommon Roll Chance", "rbxassetid://6031071050", Color3.fromRGB(150, 255, 170), true)

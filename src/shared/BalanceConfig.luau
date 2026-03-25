@@ -39,10 +39,10 @@ BalanceConfig.LUCK_MULTIPLIER_CAP = 5.0
 -- Base rarity drop rates (percentages, must sum to 100)
 BalanceConfig.BASE_RARITY_RATES = {
 	God = 0.01,      -- 0.01% base chance
+	Mythic = 0.5,    -- 0.5% base chance
 	Legendary = 1,   -- 1% base chance
-	Epic = 9,        -- 9% base chance
 	Rare = 30,       -- 30% base chance
-	Uncommon = 59.99, -- 59.99% base chance
+	Uncommon = 68.49, -- 68.49% base chance
 }
 
 -- ============================================================================
@@ -290,8 +290,8 @@ function BalanceConfig.GetRarityRatesWithLuck(luckValue)
 	
 	return {
 		God = BalanceConfig.BASE_RARITY_RATES.God * luckMult,
+		Mythic = BalanceConfig.BASE_RARITY_RATES.Mythic * luckMult,
 		Legendary = BalanceConfig.BASE_RARITY_RATES.Legendary * luckMult,
-		Epic = BalanceConfig.BASE_RARITY_RATES.Epic * luckMult,
 		Rare = BalanceConfig.BASE_RARITY_RATES.Rare * luckMult,
 		Uncommon = BalanceConfig.BASE_RARITY_RATES.Uncommon,
 	}

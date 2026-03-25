@@ -52,14 +52,14 @@ local PREVIEW_RARITY_PUNCH = {
 	Common = 1.015,
 	Uncommon = 1.03,
 	Rare = 1.055,
-	Epic = 1.085,
 	Legendary = 1.125,
+	Mythic = 1.085,
 	God = 1.165,
 	Transcendent = 1.22,
 }
 
 local FLASH_RARITY_ENABLED = {
-	Epic = true,
+	Mythic = true,
 	Legendary = true,
 	God = true,
 	Transcendent = true,
@@ -385,11 +385,12 @@ function HoverPreview.Init(mainUI, artFolder, config)
 		previewDescription.TextXAlignment = Enum.TextXAlignment.Left
 		previewDescription.TextYAlignment = Enum.TextYAlignment.Top
 		previewDescription.TextWrapped = true
-		previewDescription.Font = Enum.Font.Gotham
-		previewDescription.TextSize = 13
+		-- Bubbly / folksy title-style font for descriptions.
+		previewDescription.Font = Enum.Font.Fantasy
+		previewDescription.TextSize = 20
 		previewDescription.TextColor3 = Color3.fromRGB(230, 238, 255)
 		previewDescription.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-		previewDescription.TextStrokeTransparency = 0.3
+		previewDescription.TextStrokeTransparency = 0.1
 		previewDescription.ZIndex = PREVIEW_TEXT_ZINDEX
 		previewDescription.Text = ""
 		previewDescription.Parent = hoverPreviewFrame
@@ -516,7 +517,7 @@ function HoverPreview.Init(mainUI, artFolder, config)
 		end
 	end
 
-	local function startBeliodusAura(previewFrame)
+	local function _startBeliodusAura(previewFrame)
 		local aura = ensureBeliodusAura(previewFrame)
 		state.beliodusAuraGeneration = state.beliodusAuraGeneration + 1
 		local myGeneration = state.beliodusAuraGeneration
@@ -829,11 +830,11 @@ function HoverPreview.Init(mainUI, artFolder, config)
 			descLabel.TextXAlignment = Enum.TextXAlignment.Left
 			descLabel.TextYAlignment = Enum.TextYAlignment.Top
 			descLabel.TextWrapped = true
-			descLabel.Font = Enum.Font.Gotham
-			descLabel.TextSize = 13
+			descLabel.Font = Enum.Font.Fantasy
+			descLabel.TextSize = 18
 			descLabel.TextColor3 = Color3.fromRGB(230, 238, 255)
 			descLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-			descLabel.TextStrokeTransparency = 0.3
+			descLabel.TextStrokeTransparency = 0.2
 			descLabel.ZIndex = PREVIEW_TEXT_ZINDEX
 			descLabel.Text = ""
 			descLabel.Parent = hoverPreviewFrame
@@ -941,7 +942,14 @@ function HoverPreview.Init(mainUI, artFolder, config)
 
 		-- Description / ability text (future-proof; always readable over foil)
 		if descLabel and descLabel:IsA("TextLabel") then
-			descLabel.Text = (type(data.Description) == "string" and data.Description ~= "") and data.Description or ""
+			-- `data` comes from callers (inventory/shop). Use CardDatabase as source of truth
+			-- for the hover "ability/description" text to avoid missing or mismatched fields.
+			local cardRow = CardDatabase.GetCardData(baseCardId)
+			local resolvedDesc =
+				(type(data) == "table" and type(data.Description) == "string" and data.Description ~= "") and data.Description
+				or (cardRow and cardRow.Description)
+				or ""
+			descLabel.Text = (type(resolvedDesc) == "string" and resolvedDesc) or ""
 			descLabel.ZIndex = PREVIEW_TEXT_ZINDEX
 		end
 

@@ -12,7 +12,7 @@ local ServerStateManager = require(script.Parent:WaitForChild("core"):WaitForChi
 local PlayerStateEvents = require(script.Parent:WaitForChild("core"):WaitForChild("state"):WaitForChild("PlayerStateEvents"))
 local saveManagerBridge = ServerStorage:WaitForChild("SaveManagerBridge")
 
-local RARITY_ORDER = {"Common", "Uncommon", "Rare", "Epic", "Legendary"}
+local RARITY_ORDER = {"Common", "Uncommon", "Rare", "Legendary", "Mythic", "God", "Transcendent"}
 
 local function ensureRemoteFolder()
 	local folder = ReplicatedStorage:FindFirstChild(EconomyProtocol.Remotes.FolderName)

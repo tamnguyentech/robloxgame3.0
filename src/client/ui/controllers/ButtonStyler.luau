@@ -13,7 +13,7 @@ local RARITY_PALETTES = {
 		accent = Color3.fromRGB(100, 220, 255),
 		dark = Color3.fromRGB(0, 60, 140),
 	},
-	Epic = {
+	Mythic = {
 		primary = Color3.fromRGB(180, 0, 255),
 		secondary = Color3.fromRGB(255, 0, 220),
 		accent = Color3.fromRGB(255, 100, 255),
@@ -47,8 +47,8 @@ local RARITY_PALETTES = {
 
 local BUTTON_TYPE_TO_RARITY = {
 	Backpack = "Rare",
-	Deck = "Epic",
-	Shop = "Epic",
+	Deck = "Mythic",
+	Shop = "Mythic",
 	Profile = "Legendary",
 	Quests = "God",
 	Settings = "Common",

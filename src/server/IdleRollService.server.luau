@@ -70,7 +70,7 @@ controlEvent.OnServerEvent:Connect(function(player, payload)
 	end
 end)
 
--- Luck affects ONLY card rarity (God/Legendary/Epic/Rare/Uncommon). Foil chance
+-- Luck affects ONLY card rarity (God/Mythic/Legendary/Rare/Uncommon). Foil chance
 -- and foil tier are controlled solely by the FoilChance stat; no cross-coupling.
 local function pickIdleRollRarity(totalLuck)
 	local adjustedRates = BalanceConfig.GetRarityRatesWithLuck(totalLuck)
@@ -79,8 +79,8 @@ local function pickIdleRollRarity(totalLuck)
 	local running = 0
 	for _, entry in ipairs({
 		{rarity = "God", weight = adjustedRates.God},
+		{rarity = "Mythic", weight = adjustedRates.Mythic},
 		{rarity = "Legendary", weight = adjustedRates.Legendary},
-		{rarity = "Epic", weight = adjustedRates.Epic},
 		{rarity = "Rare", weight = adjustedRates.Rare},
 		{rarity = "Uncommon", weight = adjustedRates.Uncommon},
 	}) do

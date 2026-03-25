@@ -1289,6 +1289,97 @@ local function createDeckCardView(state)
 	spdText.Text = "ATK SPD +0% · 0.0s"
 	spdText.Parent = spdBar
 
+	local healBar = Instance.new("Frame")
+	healBar.Name = "HealingDebuffBar"
+	healBar.Visible = false
+	healBar.Size = UDim2.new(1, -10, 0, 22)
+	healBar.Position = UDim2.new(0, 5, 0, 6)
+	healBar.BackgroundColor3 = Color3.fromRGB(62, 34, 16)
+	healBar.BackgroundTransparency = 0.12
+	healBar.BorderSizePixel = 0
+	healBar.ZIndex = 13
+	healBar.Parent = frame
+	local healCorner = Instance.new("UICorner")
+	healCorner.CornerRadius = UDim.new(0, 6)
+	healCorner.Parent = healBar
+	local healStroke = Instance.new("UIStroke")
+	healStroke.Thickness = 1
+	healStroke.Color = Color3.fromRGB(255, 190, 95)
+	healStroke.Transparency = 0.3
+	healStroke.Parent = healBar
+	local healText = Instance.new("TextLabel")
+	healText.Name = "HealText"
+	healText.Size = UDim2.fromScale(1, 1)
+	healText.BackgroundTransparency = 1
+	healText.Font = Enum.Font.GothamBold
+	healText.TextSize = 13
+	healText.TextColor3 = Color3.fromRGB(255, 220, 150)
+	healText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	healText.TextStrokeTransparency = 0.4
+	healText.Text = "HEAL DOWN 25% · 0.0s"
+	healText.Parent = healBar
+
+	local vulnBar = Instance.new("Frame")
+	vulnBar.Name = "IncomingDamageBonusBar"
+	vulnBar.Visible = false
+	vulnBar.Size = UDim2.new(1, -10, 0, 22)
+	vulnBar.Position = UDim2.new(0, 5, 0, 6)
+	vulnBar.BackgroundColor3 = Color3.fromRGB(48, 22, 62)
+	vulnBar.BackgroundTransparency = 0.12
+	vulnBar.BorderSizePixel = 0
+	vulnBar.ZIndex = 13
+	vulnBar.Parent = frame
+	local vulnCorner = Instance.new("UICorner")
+	vulnCorner.CornerRadius = UDim.new(0, 6)
+	vulnCorner.Parent = vulnBar
+	local vulnStroke = Instance.new("UIStroke")
+	vulnStroke.Thickness = 1
+	vulnStroke.Color = Color3.fromRGB(210, 140, 255)
+	vulnStroke.Transparency = 0.3
+	vulnStroke.Parent = vulnBar
+	local vulnText = Instance.new("TextLabel")
+	vulnText.Name = "VulnText"
+	vulnText.Size = UDim2.fromScale(1, 1)
+	vulnText.BackgroundTransparency = 1
+	vulnText.Font = Enum.Font.GothamBold
+	vulnText.TextSize = 13
+	vulnText.TextColor3 = Color3.fromRGB(230, 190, 255)
+	vulnText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	vulnText.TextStrokeTransparency = 0.4
+	vulnText.Text = "MARKED +0% · 0.0s"
+	vulnText.Parent = vulnBar
+
+	local controlBar = Instance.new("Frame")
+	controlBar.Name = "ControlDebuffBar"
+	controlBar.Visible = false
+	controlBar.Size = UDim2.new(1, -10, 0, 22)
+	controlBar.Position = UDim2.new(0, 5, 0, 6)
+	controlBar.BackgroundColor3 = Color3.fromRGB(70, 18, 18)
+	controlBar.BackgroundTransparency = 0.12
+	controlBar.BorderSizePixel = 0
+	controlBar.ZIndex = 14
+	controlBar.Parent = frame
+	local controlCorner = Instance.new("UICorner")
+	controlCorner.CornerRadius = UDim.new(0, 6)
+	controlCorner.Parent = controlBar
+	local controlStroke = Instance.new("UIStroke")
+	controlStroke.Name = "ControlStroke"
+	controlStroke.Thickness = 1.5
+	controlStroke.Color = Color3.fromRGB(255, 120, 120)
+	controlStroke.Transparency = 0.25
+	controlStroke.Parent = controlBar
+	local controlText = Instance.new("TextLabel")
+	controlText.Name = "ControlText"
+	controlText.Size = UDim2.fromScale(1, 1)
+	controlText.BackgroundTransparency = 1
+	controlText.Font = Enum.Font.GothamBold
+	controlText.TextSize = 13
+	controlText.TextColor3 = Color3.fromRGB(255, 160, 160)
+	controlText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	controlText.TextStrokeTransparency = 0.4
+	controlText.Text = "STUN · 0.0s"
+	controlText.Parent = controlBar
+
 	return frame
 end
 
@@ -1384,16 +1475,106 @@ local function renderPanel(panel, titleText, states)
 
 			local spdBar = card:FindFirstChild("AtkSpeedBuffBar")
 			local spdText = spdBar and spdBar:FindFirstChild("SpdText")
+			local spdVisible = false
 			if spdBar and spdText then
 				local spdRem = tonumber(state.speedBoostRemainingSec) or 0
 				local spdMag = tonumber(state.speedBoostMagnitude) or 0
 				if spdRem > 0 and spdMag > 0 then
 					spdBar.Visible = true
+					spdVisible = true
 					local spdPct = math.floor(spdMag * 100 + 0.5)
 					spdText.Text = string.format("ATK SPD +%d%% · %.1fs", spdPct, spdRem)
 					spdBar.Position = drVisible and UDim2.new(0, 5, 0, 30) or UDim2.new(0, 5, 0, 6)
 				else
 					spdBar.Visible = false
+					spdVisible = false
+				end
+			end
+
+			local healBar = card:FindFirstChild("HealingDebuffBar")
+			local healText = healBar and healBar:FindFirstChild("HealText")
+			local healVisible = false
+			if healBar and healText then
+				local healRem = tonumber(state.healingReductionRemainingSec) or 0
+				local healFrac = tonumber(state.healingReductionFraction) or 0
+				if healRem > 0 and healFrac > 0 then
+					healBar.Visible = true
+					healVisible = true
+					local healPct = math.floor(healFrac * 100 + 0.5)
+					local barsAbove = (drVisible and 1 or 0) + (spdVisible and 1 or 0)
+					healBar.Position = UDim2.new(0, 5, 0, 6 + (barsAbove * 24))
+					healText.Text = string.format("HEAL DOWN %d%% · %.1fs", healPct, healRem)
+				else
+					healBar.Visible = false
+				end
+			end
+
+			local vulnBar = card:FindFirstChild("IncomingDamageBonusBar")
+			local vulnText = vulnBar and vulnBar:FindFirstChild("VulnText")
+			local vulnVisible = false
+			if vulnBar and vulnText then
+				local vulnRem = tonumber(state.incomingDamageBonusRemainingSec) or 0
+				local vulnFrac = tonumber(state.incomingDamageBonusFraction) or 0
+				if vulnRem > 0 and vulnFrac > 0 then
+					vulnBar.Visible = true
+					vulnVisible = true
+					local vulnPct = math.floor(vulnFrac * 100 + 0.5)
+					local barsAbove = (drVisible and 1 or 0) + (spdVisible and 1 or 0) + (healVisible and 1 or 0)
+					vulnBar.Position = UDim2.new(0, 5, 0, 6 + (barsAbove * 24))
+					vulnText.Text = string.format("MARKED +%d%% · %.1fs", vulnPct, vulnRem)
+				else
+					vulnBar.Visible = false
+				end
+			end
+
+			local controlBar = card:FindFirstChild("ControlDebuffBar")
+			local controlText = controlBar and controlBar:FindFirstChild("ControlText")
+			if controlBar and controlText then
+				local stunRem = tonumber(state.stunRemainingSec) or 0
+				local sealRem = tonumber(state.sealRemainingSec) or 0
+				local dodgeDisabledRem = tonumber(state.dodgeDisabledRemainingSec) or 0
+
+				local rem = 0
+				local label = nil
+				local textColor = Color3.fromRGB(255, 160, 160)
+				local strokeColor = Color3.fromRGB(255, 120, 120)
+				local bgColor = Color3.fromRGB(70, 18, 18)
+
+				if stunRem > 0 then
+					rem = stunRem
+					label = "STUN"
+					textColor = Color3.fromRGB(255, 160, 160)
+					strokeColor = Color3.fromRGB(255, 120, 120)
+					bgColor = Color3.fromRGB(70, 18, 18)
+				elseif sealRem > 0 then
+					rem = sealRem
+					label = "SEAL"
+					textColor = Color3.fromRGB(255, 225, 140)
+					strokeColor = Color3.fromRGB(255, 210, 90)
+					bgColor = Color3.fromRGB(70, 60, 10)
+				elseif dodgeDisabledRem > 0 then
+					rem = dodgeDisabledRem
+					label = "DODGE OFF"
+					textColor = Color3.fromRGB(155, 240, 255)
+					strokeColor = Color3.fromRGB(110, 230, 255)
+					bgColor = Color3.fromRGB(20, 55, 70)
+				end
+
+				if rem > 0 and label then
+					controlBar.Visible = true
+					local barsAbove = (drVisible and 1 or 0) + (spdVisible and 1 or 0) + (healVisible and 1 or 0) + (vulnVisible and 1 or 0)
+					local y = 6 + (barsAbove * 24)
+					controlBar.Position = UDim2.new(0, 5, 0, y)
+
+					controlBar.BackgroundColor3 = bgColor
+					local controlStroke = controlBar:FindFirstChild("ControlStroke")
+					if controlStroke and controlStroke:IsA("UIStroke") then
+						controlStroke.Color = strokeColor
+					end
+					controlText.TextColor3 = textColor
+					controlText.Text = string.format("%s · %.1fs", label, rem)
+				else
+					controlBar.Visible = false
 				end
 			end
 
@@ -1490,6 +1671,15 @@ local function getAbilityEffectStyle(effectType)
 	if effectType == "EnemyPartyAttackDown" then
 		return Color3.fromRGB(190, 130, 255), "ATK DOWN"
 	end
+	if effectType == "StunOneEnemy" or effectType == "StunAllEnemies" then
+		return Color3.fromRGB(255, 110, 110), "STUN"
+	end
+	if effectType == "SealOneEnemy" then
+		return Color3.fromRGB(255, 215, 95), "SEAL"
+	end
+	if effectType == "DisableDodgeAllEnemies" then
+		return Color3.fromRGB(110, 230, 255), "DODGE OFF"
+	end
 	return Color3.fromRGB(220, 220, 220), "BUFF"
 end
 
@@ -1511,6 +1701,15 @@ local function getBuffNoticeText(abilityEvent, isAlly)
 	end
 	if effectType == "EnemyPartyAttackDown" then
 		return string.format("Enemy ATK -%d%% (%.1fs)", magnitudePercent, durationSeconds)
+	end
+	if effectType == "StunOneEnemy" or effectType == "StunAllEnemies" then
+		return string.format("Enemy STUN (%.1fs)", durationSeconds)
+	end
+	if effectType == "SealOneEnemy" then
+		return string.format("Enemy SEAL (%.1fs)", durationSeconds)
+	end
+	if effectType == "DisableDodgeAllEnemies" then
+		return string.format("Enemy DODGE OFF (%.1fs)", durationSeconds)
 	end
 
 	return nil
@@ -2046,8 +2245,11 @@ sessionEvent.OnClientEvent:Connect(function(payload)
 			local myUserId = player.UserId
 			local enemyUserId = (payload.playerAUserId == myUserId) and payload.playerBUserId or payload.playerAUserId
 			local stagger = DamagePopupManager.STAGGER_SEC
+			local ENTRY_MULTI_HIT_STAGGER_SEC = 0.13
 			for i, attack in ipairs(payload.attacks) do
-				local delay = (i - 1) * stagger
+				local effectiveStagger = (attack and attack.isEntryMultiHit) and ENTRY_MULTI_HIT_STAGGER_SEC or stagger
+				local displayIndex = tonumber(attack and attack.entryHitIndex) or i
+				local delay = math.max(0, displayIndex - 1) * effectiveStagger
 				if attack.attackerUserId == myUserId then
 					animateAttackDash(leftPanel, attack.attackerSlotIndex, rightPanel, attack.targetSlotIndex)
 					animateRowPulse(leftPanel, attack.attackerSlotIndex, Color3.fromRGB(38, 122, 76))
