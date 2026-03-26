@@ -1,5 +1,10 @@
 -- CombatFormulas.luau
 -- Shared effective attack / attack interval (buff windows on unit state).
+-- Passive combat modifiers keyed from AbilityDatabase (Trigger Passive) live here, e.g. outrage.
+-- Casts and on-hit: CombatAutoAbilities, EffectResolver, CombatOnHitAbilities.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CardAbilityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardAbilityConfig"))
 
 local CombatFormulas = {}
 
@@ -23,6 +28,35 @@ function CombatFormulas.GetEffectiveAttack(cardState, now)
 	if cardState and (tonumber(cardState.outgoingAttackDebuffUntil) or 0) > now then
 		local pen = math.min(0.95, math.max(0, tonumber(cardState.outgoingAttackDebuffPercent) or 0))
 		attack = math.max(1, math.floor(attack * (1 - pen)))
+	end
+	-- Passive: low-HP self damage (e.g. outrage) — after timed boost and outgoing debuff.
+	local abilityId = cardState and type(cardState.abilityId) == "string" and cardState.abilityId
+	if abilityId ~= "" and abilityId then
+		local def = CardAbilityConfig.GetAbility(abilityId)
+		if def and def.Trigger == "Passive" then
+			local effectType = def.EffectType
+			local hp = tonumber(cardState.health) or 0
+			local maxHp = math.max(1, tonumber(cardState.maxHealth) or 1)
+			if effectType == "MissingHpDamageBoost" then
+				local clampedHp = math.clamp(hp, 0, maxHp)
+				local missingHp = maxHp - clampedHp
+				local mag = tonumber(def.Magnitude) or 1
+				if missingHp > 0 and mag > 0 then
+					local bonus = math.floor(missingHp * math.max(0, mag))
+					attack = math.max(1, attack + bonus)
+				end
+			else
+				local thr = tonumber(def.HpRatioThreshold)
+				local mag = tonumber(def.Magnitude)
+				if thr and thr > 0 and thr <= 1 and mag and mag > 0 then
+					local ratio = hp / maxHp
+					if ratio < thr then
+						local bonus = math.clamp(mag, 0, 2)
+						attack = math.max(1, math.floor(attack * (1 + bonus)))
+					end
+				end
+			end
+		end
 	end
 	return attack
 end

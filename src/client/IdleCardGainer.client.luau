@@ -13,7 +13,8 @@ local SettingsUIController = require(script.Parent.ui.controllers.SettingsUICont
 
 -- Template for card notifications
 local template = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("CardTemplate"):WaitForChild("Card")
-local artFolder = ReplicatedStorage:WaitForChild("CardArt")
+-- CardArt is optional now; the game can run purely from ArtAssetId / VideoAssetId.
+local artFolder = ReplicatedStorage:FindFirstChild("CardArt")
 local saveEvent = ReplicatedStorage:WaitForChild("SaveDataEvent")
 
 local luckBuffEvent = BuffBridge.GetLuckBuffEvent()
@@ -645,6 +646,10 @@ saveEvent.OnClientEvent:Connect(onSaveData)
 -- Function to show card gain notification
 local function findCardArtDecal(cardId)
 	if type(cardId) ~= "string" or cardId == "" then
+		return nil
+	end
+
+	if not artFolder then
 		return nil
 	end
 

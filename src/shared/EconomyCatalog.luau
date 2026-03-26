@@ -63,39 +63,10 @@ local ITEM_DEFINITIONS = {
 }
 
 local DIRECT_CARD_OVERRIDES = {
-    BeliodusX = {
-        Price = 1200,
-        GrantAmount = 1,
-        SortOrder = 9990,
-    },
     AstraEclipse = {
         Price = 1200,
         GrantAmount = 1,
         SortOrder = 9991,
-    },
-    -- Dev/test: one tiered BeliodusX bordered card per tier at 1 coin each.
-    -- Buy these in the Shop → Cards tab and hover to see each foil effect.
-    -- The tier is encoded in the card reference so card-rarity (God) and
-    -- border-tier-rarity remain fully independent systems.
-    ["BeliodusX::Foil::Silver"] = {
-        Price = 1,
-        GrantAmount = 1,
-        SortOrder = 9985,
-    },
-    ["BeliodusX::Foil::Gold"] = {
-        Price = 1,
-        GrantAmount = 1,
-        SortOrder = 9986,
-    },
-    ["BeliodusX::Foil::Diamond"] = {
-        Price = 1,
-        GrantAmount = 1,
-        SortOrder = 9987,
-    },
-    ["BeliodusX::Foil::Rainbow"] = {
-        Price = 1,
-        GrantAmount = 1,
-        SortOrder = 9988,
     },
 }
 

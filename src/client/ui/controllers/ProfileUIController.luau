@@ -107,6 +107,9 @@ local function updateDerivedEffects(stats)
 	if effectLabels.Uncommon then
 		effectLabels.Uncommon.Text = formatPercent(rarityRates.Uncommon)
 	end
+	if effectLabels.Common then
+		effectLabels.Common.Text = formatPercent(rarityRates.Common)
+	end
 end
 
 -- Update UI with current stats
@@ -562,6 +565,8 @@ function ProfileUIController.Setup(parentContent)
 	effectLabels.Rare = rareRateCard:FindFirstChild("ValueLabel")
 	local uncommonRateCard = createStatCard(effectsContainer, "Uncommon Roll Chance", "rbxassetid://6031071050", Color3.fromRGB(150, 255, 170), true)
 	effectLabels.Uncommon = uncommonRateCard:FindFirstChild("ValueLabel")
+	local commonRateCard = createStatCard(effectsContainer, "Common Roll Chance", "rbxassetid://6031071050", Color3.fromRGB(185, 185, 190), true)
+	effectLabels.Common = commonRateCard:FindFirstChild("ValueLabel")
 
 	local function setLeftTab(activeTab)
 		local isStats = (activeTab == "Stats")

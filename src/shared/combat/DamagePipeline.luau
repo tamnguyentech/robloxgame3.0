@@ -52,7 +52,11 @@ function DamagePipeline.ApplyDamageToNpc(session, rawAmount)
 	return amount
 end
 
-function DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
+function DamagePipeline.ResolveHit(attacker, target, rawDamage, now, options)
+	options = type(options) == "table" and options or {}
+	local isFangFollowup = options.isFangFollowup == true
+	local isStarburstFollowup = options.isStarburstFollowup == true
+	local session = options.session
 	local amount = math.max(0, math.floor(tonumber(rawDamage) or 0))
 	local currentNow = tonumber(now) or os.clock()
 	local result = {
@@ -62,8 +66,11 @@ function DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
 		absorbed = 0,
 		isCrit = false,
 		isDodged = false,
+		isFangFollowup = isFangFollowup,
+		isStarburstFollowup = isStarburstFollowup,
 		attacker = attacker,
 		target = target,
+		session = session,
 	}
 
 	if amount <= 0 then
@@ -78,7 +85,23 @@ function DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
 		-- Control effects: prevent dodges while stunned or while dodge is disabled (e.g. webs).
 		local stunUntil = tonumber(target.stunUntil) or 0
 		local dodgeDisabledUntil = tonumber(target.dodgeDisabledUntil) or 0
-		if stunUntil > currentNow or dodgeDisabledUntil > currentNow then
+		local dodgeDisabled = stunUntil > currentNow or dodgeDisabledUntil > currentNow
+
+		-- Killer Instincts: guarantee the next eligible incoming hit is dodged once.
+		-- Respects stun/dodge-disable; if dodge is disabled, we do not consume the flag.
+		local forceLegacy = target.killerInstinctsForceDodgeNext == true
+		local forceGeneric = (target.abilityFlags and target.abilityFlags["killerinstincts:forceDodgeNext"] == true)
+		if (forceLegacy or forceGeneric) and not dodgeDisabled then
+			result.isDodged = true
+			result.finalDamage = 0
+			target.killerInstinctsForceDodgeNext = false -- legacy field clear
+			if target.abilityFlags then
+				target.abilityFlags["killerinstincts:forceDodgeNext"] = false
+			end
+			return result
+		end
+
+		if dodgeDisabled then
 			dodge = 0
 		end
 		local effectiveDodge = math.clamp(dodge - accuracy, 0, 95)
@@ -126,6 +149,16 @@ function DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
 	if target then
 		local reductionPercent = math.clamp(readSecondaryStat(target, "DamageReduction"), 0, 90)
 		amount = math.max(0, math.floor(amount * (1 - reductionPercent / 100)))
+		-- Anti-magic passive: less damage taken from Category "Mage" attackers (after flat DR, before vuln/shield).
+		if attacker then
+			local atkCat = attacker.cardCategory
+			if atkCat == "Mage" then
+				local mageRed = math.clamp(tonumber(target.damageReductionVsMageAttacks) or 0, 0, 0.95)
+				if mageRed > 0 then
+					amount = math.max(0, math.floor(amount * (1 - mageRed)))
+				end
+			end
+		end
 		local incomingBonusUntil = tonumber(target.incomingDamageBonusUntil) or 0
 		if incomingBonusUntil > currentNow then
 			local incomingBonusFraction = math.clamp(tonumber(target.incomingDamageBonusFraction) or 0, 0, 2)

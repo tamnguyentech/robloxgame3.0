@@ -16,7 +16,8 @@ local RainbowBorderStroke = require(script.Parent.ui.effects:WaitForChild("Rainb
 local ClientStateManager = require(script.Parent.core:WaitForChild("ClientStateManager"))
 local DeviceContext = require(script.Parent.core:WaitForChild("DeviceContext"))
 local DamagePopupManager = require(script.Parent.ui:WaitForChild("DamagePopupManager"))
-local cardArtFolder      = ReplicatedStorage:WaitForChild("CardArt")
+-- CardArt is optional now; the game can run purely from ArtAssetId / VideoAssetId.
+local cardArtFolder      = ReplicatedStorage:FindFirstChild("CardArt")
 
 local remotesFolder = ReplicatedStorage:WaitForChild(PvpProtocol.Remotes.FolderName)
 local challengeRequestEvent = remotesFolder:WaitForChild(PvpProtocol.Remotes.ChallengeRequest)
@@ -173,6 +174,10 @@ end)
 
 local function findCardArtDecal(cardId)
 	if type(cardId) ~= "string" or cardId == "" then
+		return nil
+	end
+
+	if not cardArtFolder then
 		return nil
 	end
 
@@ -1413,6 +1418,46 @@ local function createDeckCardView(state)
 	return frame
 end
 
+-- PvP state sync is discrete; smooth seal remaining time (Heartbeat + end clock on card).
+local pvpSealCountdownHbConn = nil
+
+local function tickPvpSealCountdownBars()
+	if not (battleFrame and battleFrame.Visible) then
+		return
+	end
+	for _, panelName in ipairs({ "LeftPanel", "RightPanel" }) do
+		local panel = battleFrame:FindFirstChild(panelName)
+		local row = panel and panel:FindFirstChild("CardRow")
+		if row then
+			for i = 1, COMBAT_SLOT_COUNT do
+				local card = row:FindFirstChild("SlotCard" .. tostring(i))
+				if card then
+					local endT = card:GetAttribute("SealCountdownEnd")
+					local bar = card:FindFirstChild("SealDebuffBar")
+					local txt = bar and bar:FindFirstChild("SealText")
+					if type(endT) == "number" and bar and txt then
+						local left = math.max(0, endT - os.clock())
+						if left <= 0.05 then
+							bar.Visible = false
+							card:SetAttribute("SealCountdownEnd", nil)
+						else
+							bar.Visible = true
+							txt.Text = string.format("SEAL · abilities silenced · %.1fs", left)
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
+local function ensurePvpSealCountdownHeartbeat()
+	if pvpSealCountdownHbConn then
+		return
+	end
+	pvpSealCountdownHbConn = RunService.Heartbeat:Connect(tickPvpSealCountdownBars)
+end
+
 local function renderPanel(panel, titleText, states)
 	local header = panel:FindFirstChild("Header")
 	if header and header:IsA("TextLabel") then
@@ -1567,8 +1612,11 @@ local function renderPanel(panel, titleText, states)
 					sealVisible = true
 					local barsAbove = (drVisible and 1 or 0) + (spdVisible and 1 or 0) + (healVisible and 1 or 0) + (vulnVisible and 1 or 0)
 					sealBar.Position = UDim2.new(0, 5, 0, 6 + (barsAbove * 24))
+					card:SetAttribute("SealCountdownEnd", os.clock() + sealRem)
 					sealText.Text = string.format("SEAL · abilities silenced · %.1fs", sealRem)
+					ensurePvpSealCountdownHeartbeat()
 				else
+					card:SetAttribute("SealCountdownEnd", nil)
 					sealBar.Visible = false
 				end
 			end
@@ -1713,7 +1761,7 @@ local function getAbilityEffectStyle(effectType)
 	if effectType == "StunOneEnemy" or effectType == "StunAllEnemies" then
 		return Color3.fromRGB(255, 110, 110), "STUN"
 	end
-	if effectType == "SealOneEnemy" then
+	if effectType == "SealOneEnemy" or effectType == "AntiMagicOnEntry" then
 		return Color3.fromRGB(255, 215, 95), "SEAL"
 	end
 	if effectType == "DisableDodgeAllEnemies" then
@@ -1744,7 +1792,7 @@ local function getBuffNoticeText(abilityEvent, isAlly)
 	if effectType == "StunOneEnemy" or effectType == "StunAllEnemies" then
 		return string.format("Enemy STUN (%.1fs)", durationSeconds)
 	end
-	if effectType == "SealOneEnemy" then
+	if effectType == "SealOneEnemy" or effectType == "AntiMagicOnEntry" then
 		return string.format("Enemy SEAL (%.1fs)", durationSeconds)
 	end
 	if effectType == "DisableDodgeAllEnemies" then
@@ -2284,20 +2332,31 @@ sessionEvent.OnClientEvent:Connect(function(payload)
 			local myUserId = player.UserId
 			local enemyUserId = (payload.playerAUserId == myUserId) and payload.playerBUserId or payload.playerAUserId
 			local stagger = DamagePopupManager.STAGGER_SEC
-			local ENTRY_MULTI_HIT_STAGGER_SEC = 0.13
+			local ENTRY_MULTI_HIT_STAGGER_SEC = 0.34
 			for i, attack in ipairs(payload.attacks) do
-				local effectiveStagger = (attack and attack.isEntryMultiHit) and ENTRY_MULTI_HIT_STAGGER_SEC or stagger
-				local displayIndex = tonumber(attack and attack.entryHitIndex) or i
+				local isFollowup = attack and (attack.isFangFollowup == true or attack.isStarburstFollowup == true)
+				local effectiveStagger = (attack and (attack.isEntryMultiHit == true or isFollowup)) and ENTRY_MULTI_HIT_STAGGER_SEC or stagger
+				local displayIndex = (isFollowup and i) or tonumber(attack and attack.entryHitIndex) or i
 				local delay = math.max(0, displayIndex - 1) * effectiveStagger
+				local attackerSlotIndex = attack and attack.attackerSlotIndex
+				local targetSlotIndex = attack and attack.targetSlotIndex
 				if attack.attackerUserId == myUserId then
-					animateAttackDash(leftPanel, attack.attackerSlotIndex, rightPanel, attack.targetSlotIndex)
-					animateRowPulse(leftPanel, attack.attackerSlotIndex, Color3.fromRGB(38, 122, 76))
-					animateRowPulse(rightPanel, attack.targetSlotIndex, Color3.fromRGB(148, 54, 54))
+					task.delay(delay, function()
+						if leftPanel and leftPanel.Parent and rightPanel and rightPanel.Parent then
+							animateAttackDash(leftPanel, attackerSlotIndex, rightPanel, targetSlotIndex)
+							animateRowPulse(leftPanel, attackerSlotIndex, Color3.fromRGB(38, 122, 76))
+							animateRowPulse(rightPanel, targetSlotIndex, Color3.fromRGB(148, 54, 54))
+						end
+					end)
 					showDamagePopup(rightPanel, attack.targetSlotIndex, attack, delay, "pvpR")
 				elseif attack.attackerUserId == enemyUserId then
-					animateAttackDash(rightPanel, attack.attackerSlotIndex, leftPanel, attack.targetSlotIndex)
-					animateRowPulse(rightPanel, attack.attackerSlotIndex, Color3.fromRGB(38, 122, 76))
-					animateRowPulse(leftPanel, attack.targetSlotIndex, Color3.fromRGB(148, 54, 54))
+					task.delay(delay, function()
+						if leftPanel and leftPanel.Parent and rightPanel and rightPanel.Parent then
+							animateAttackDash(rightPanel, attackerSlotIndex, leftPanel, targetSlotIndex)
+							animateRowPulse(rightPanel, attackerSlotIndex, Color3.fromRGB(38, 122, 76))
+							animateRowPulse(leftPanel, targetSlotIndex, Color3.fromRGB(148, 54, 54))
+						end
+					end)
 					showDamagePopup(leftPanel, attack.targetSlotIndex, attack, delay, "pvpL")
 				end
 			end

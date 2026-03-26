@@ -70,7 +70,7 @@ controlEvent.OnServerEvent:Connect(function(player, payload)
 	end
 end)
 
--- Luck affects ONLY card rarity (God/Mythic/Legendary/Rare/Uncommon). Foil chance
+-- Luck affects ONLY card rarity (Transcendent…Common; Common/Uncommon not scaled). Foil chance
 -- and foil tier are controlled solely by the FoilChance stat; no cross-coupling.
 local function pickIdleRollRarity(totalLuck)
 	local adjustedRates = BalanceConfig.GetRarityRatesWithLuck(totalLuck)
@@ -78,18 +78,37 @@ local function pickIdleRollRarity(totalLuck)
 	local roll = math.random() * 100
 	local running = 0
 	for _, entry in ipairs({
+		{rarity = "Transcendent", weight = adjustedRates.Transcendent},
 		{rarity = "God", weight = adjustedRates.God},
 		{rarity = "Mythic", weight = adjustedRates.Mythic},
 		{rarity = "Legendary", weight = adjustedRates.Legendary},
 		{rarity = "Rare", weight = adjustedRates.Rare},
 		{rarity = "Uncommon", weight = adjustedRates.Uncommon},
+		{rarity = "Common", weight = adjustedRates.Common},
 	}) do
 		running += entry.weight
 		if roll <= running then
 			return entry.rarity
 		end
 	end
-	return "Uncommon"
+	return "Common"
+end
+
+-- Transformation cards are alternate forms / revive targets for abilities — not normal drops.
+local function isIdleRollableCard(cardId, data)
+	if not data then
+		return false
+	end
+	if cardId == "BeliodusX" then
+		return false
+	end
+	if data.Category == "NPC" then
+		return false
+	end
+	if data.Category == "Transformation" then
+		return false
+	end
+	return true
 end
 
 local function pickIdleRollCardId(totalLuck)
@@ -97,14 +116,14 @@ local function pickIdleRollCardId(totalLuck)
 	local pool = {}
 	for _, cardId in ipairs(CardDatabase.GetCardsByRarity(rarity)) do
 		local data = CardDatabase.GetCardData(cardId)
-		if data and data.Category ~= "NPC" then
+		if isIdleRollableCard(cardId, data) then
 			table.insert(pool, cardId)
 		end
 	end
 	if #pool == 0 then
 		for _, cardId in ipairs(CardDatabase.GetAllCardIdsSorted()) do
 			local data = CardDatabase.GetCardData(cardId)
-			if data and data.Category ~= "NPC" then
+			if isIdleRollableCard(cardId, data) then
 				table.insert(pool, cardId)
 			end
 		end

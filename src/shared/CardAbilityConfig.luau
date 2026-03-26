@@ -1,5 +1,7 @@
 -- CardAbilityConfig.luau
--- Back-compat facade: ability logic lives in AbilityDatabase.luau. Cards still set AbilityId on the row.
+-- Back-compat facade: definitions in AbilityDatabase.luau. Cards set AbilityId on the row.
+-- Runtime: AutoTimer → CombatAutoAbilities; OnEntry → ApplyOnBattleStart*; OnHit → CombatOnHitAbilities;
+-- Passive stat hooks → CombatFormulas (see AbilityDatabase file header).
 
 local AbilityDatabase = require(script.Parent:WaitForChild("AbilityDatabase"))
 

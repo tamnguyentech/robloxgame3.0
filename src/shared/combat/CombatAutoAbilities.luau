@@ -1,5 +1,7 @@
 -- CombatAutoAbilities.luau
--- Data-driven auto abilities (TeamAttackSpeedBoost, TeamAttackDamageBoost, HealLowestAlly).
+-- Timer-driven casts: TryApply runs on the battle tick for Trigger == "AutoTimer".
+-- See AbilityDatabase header for full trigger map (OnEntry / Passive / OnHit live elsewhere).
+-- On-hit effects: CombatOnHitAbilities + DamagePipeline OnHit event.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CardAbilityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardAbilityConfig"))
@@ -19,6 +21,14 @@ function CombatAutoAbilities.TryApply(allies, casterState, now, abilityEvents, o
 	end
 	-- OnEntry-only abilities are resolved in ApplyOnBattleStart*; not on the auto-timer.
 	if abilityDef.Trigger == "OnEntry" then
+		return false
+	end
+	-- Passives (e.g. low-HP damage) are applied in CombatFormulas.GetEffectiveAttack, not here.
+	if abilityDef.Trigger == "Passive" then
+		return false
+	end
+	-- OnHit abilities run from CombatOnHitAbilities (CombatEventBus), not the auto-cast timer.
+	if abilityDef.Trigger == "OnHit" then
 		return false
 	end
 

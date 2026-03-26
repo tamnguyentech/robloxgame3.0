@@ -1097,7 +1097,11 @@ function HoverPreview.Init(mainUI, artFolder, config)
 				artVideo.Visible = false
 				artVideo.Playing = false
 			end
-			local imageObj = artFolder:FindFirstChild(baseCardId)
+			-- `artFolder` is optional when `ReplicatedStorage.CardArt` is not used (image ids live on card data).
+			local imageObj = nil
+			if artFolder then
+				imageObj = artFolder:FindFirstChild(baseCardId)
+			end
 			if imageObj and imageObj:IsA("Decal") then
 				artImage.Image = imageObj.Texture
 			elseif data and data.ArtAssetId and data.ArtAssetId ~= "" and data.ArtAssetId ~= "rbxassetid://0" then

@@ -7,7 +7,8 @@ local ContentProvider = game:GetService("ContentProvider")
 local Workspace = game:GetService("Workspace")
 
 local BattleProtocol     = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BattleProtocol"))
-local cardArtFolder      = ReplicatedStorage:WaitForChild("CardArt")
+-- CardArt is optional now; the game can run purely from ArtAssetId / VideoAssetId.
+local cardArtFolder      = ReplicatedStorage:FindFirstChild("CardArt")
 local CardDatabase       = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardDatabase"))
 local CardVisualResolver = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CardVisualResolver"))
 local HoloFoilController = require(script.Parent.ui.effects:WaitForChild("HoloFoilController"))
@@ -155,6 +156,10 @@ end)
 
 local function findCardArtDecal(cardId)
 	if type(cardId) ~= "string" or cardId == "" then
+		return nil
+	end
+
+	if not cardArtFolder then
 		return nil
 	end
 
@@ -1814,7 +1819,7 @@ local function getAbilityEffectStyle(effectType)
 	if effectType == "StunOneEnemy" or effectType == "StunAllEnemies" then
 		return Color3.fromRGB(255, 110, 110), "STUN"
 	end
-	if effectType == "SealOneEnemy" then
+	if effectType == "SealOneEnemy" or effectType == "AntiMagicOnEntry" then
 		return Color3.fromRGB(255, 215, 95), "SEAL"
 	end
 	if effectType == "DisableDodgeAllEnemies" then
@@ -2610,14 +2615,55 @@ battleStateEvent.OnClientEvent:Connect(function(payload)
 		syncNpcHealingDebuffFromPayload(payload)
 		syncNpcIncomingDamageBonusFromPayload(payload)
 		syncNpcStunFromPayload(payload)
+		local BURST_FOLLOWUP_STAGGER_SEC = 0.5
 		if type(payload.entryNpcAttacks) == "table" and #payload.entryNpcAttacks > 0 then
 			local root = uiState.rootFrame
 			local npcCard = uiState.npcEnemyCardFrame
-			local ENTRY_MULTI_HIT_STAGGER_SEC = 0.13
+			local ENTRY_MULTI_HIT_STAGGER_SEC = 0.34
 			for i, attack in ipairs(payload.entryNpcAttacks) do
-				local displayIndex = tonumber(attack and attack.entryHitIndex) or i
-				local delay = math.max(0, displayIndex - 1) * ENTRY_MULTI_HIT_STAGGER_SEC
-				animateSingleDeckAttack(attack.attackerSlotIndex, attack.attackerCardId)
+				local isFollowup = attack and (attack.isFangFollowup == true or attack.isStarburstFollowup == true)
+				local delayIndex = (isFollowup and i) or tonumber(attack and attack.entryHitIndex) or i
+				local delay = math.max(0, delayIndex - 1) * ENTRY_MULTI_HIT_STAGGER_SEC
+				local attackerSlotIndex = attack and attack.attackerSlotIndex
+				local attackerCardId = attack and attack.attackerCardId
+				-- Snapshot loop locals for delayed callbacks.
+				local slotIndexSnapshot = attackerSlotIndex
+				local cardIdSnapshot = attackerCardId
+				task.delay(delay, function()
+					animateSingleDeckAttack(slotIndexSnapshot, cardIdSnapshot)
+				end)
+				if root and root.Parent and npcCard and npcCard.Parent then
+					local dmg = tonumber(attack.dealtDamage) or 0
+					local cat = DamagePopupManager.MapCategory(dmg, attack.isCrit, attack.isDodged, attack.absorbed)
+					DamagePopupManager.EnqueueFloating({
+						sessionId = payload.sessionId,
+						targetKey = "pve_npc",
+						rootFrame = root,
+						targetGui = npcCard,
+						amount = dmg,
+						absorbed = attack.absorbed,
+						category = cat,
+						contextKind = "PlayerToNpc",
+						sequence = tonumber(attack.hitSeq) or (tonumber(payload.hitSeq) or 0),
+						staggerDelay = delay,
+					})
+				end
+			end
+		end
+		if type(payload.burstNpcAttacks) == "table" and #payload.burstNpcAttacks > 0 then
+			local root = uiState.rootFrame
+			local npcCard = uiState.npcEnemyCardFrame
+			for i, attack in ipairs(payload.burstNpcAttacks) do
+				local delayIndex = tonumber(attack and attack.entryHitIndex) or i
+				local delay = math.max(0, delayIndex - 1) * BURST_FOLLOWUP_STAGGER_SEC
+				local attackerSlotIndex = attack and attack.attackerSlotIndex
+				local attackerCardId = attack and attack.attackerCardId
+				-- Snapshot loop locals for delayed callbacks.
+				local slotIndexSnapshot = attackerSlotIndex
+				local cardIdSnapshot = attackerCardId
+				task.delay(delay, function()
+					animateSingleDeckAttack(slotIndexSnapshot, cardIdSnapshot)
+				end)
 				if root and root.Parent and npcCard and npcCard.Parent then
 					local dmg = tonumber(attack.dealtDamage) or 0
 					local cat = DamagePopupManager.MapCategory(dmg, attack.isCrit, attack.isDodged, attack.absorbed)

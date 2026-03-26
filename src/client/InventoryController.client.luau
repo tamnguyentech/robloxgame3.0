@@ -60,7 +60,8 @@ local function ensureSpringDriver()
 	end)
 end
 
-local artFolder = ReplicatedStorage:WaitForChild("CardArt")
+-- CardArt is optional now; the game can run purely from ArtAssetId / VideoAssetId.
+local artFolder = ReplicatedStorage:FindFirstChild("CardArt")
 local mainUI = Player.PlayerGui:WaitForChild("MainUI")  -- Adjust "MainUI" to your ScreenGui name
 
 local function getOrCreateHoverVideoPreviewActiveValue()
@@ -1931,6 +1932,10 @@ end)
 
 findCardArtDecal = function(cardId)
 	if type(cardId) ~= "string" or cardId == "" then
+		return nil
+	end
+
+	if not artFolder then
 		return nil
 	end
 

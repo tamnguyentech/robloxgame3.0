@@ -9,10 +9,21 @@ local CombatFormulas = require(ReplicatedStorage:WaitForChild("Shared"):WaitForC
 local DamagePipeline = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("DamagePipeline"))
 local CombatAutoAbilities = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatAutoAbilities"))
 local CombatEventBus = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatEventBus"))
+local CombatFollowUpDispatcher = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatFollowUpDispatcher"))
+
+-- Loads death-triggered ability handlers (subscribes to CombatEventBus).
+require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatOnDeathAbilities"))
 
 local MAX_DECK_SIZE = 5
 local DEFAULT_ATTACK_INTERVAL_SECONDS = 5
 local ATTACK_STAGGER_SECONDS = 0.7
+-- Client-side animation pacing for multi-hit entry visuals.
+-- Keep in sync with `PvpBattleClient` where ENTRY_MULTI_HIT_STAGGER_SEC = 0.34.
+local ENTRY_MULTI_HIT_STAGGER_SECONDS = 0.34
+-- Single-hit popup stagger (DamagePopupManager.STAGGER_SEC in the client).
+local SINGLE_HIT_STAGGER_SECONDS = 0.012
+-- Hard server lockout for auto-attacks while ability/multi-hit visuals play.
+local ATTACK_ANIM_LOCK_SECONDS = 0.35
 local PVP_ABILITY_TICK_INTERVAL_SECONDS = math.max(0.02, tonumber(BattleBalanceConfig.Pvp.AbilityTickIntervalSeconds) or 0.08)
 local DEFAULT_ABILITY_FIRST_CAST_DELAY_SECONDS = math.max(0, tonumber(BattleBalanceConfig.Pvp.AbilityFirstCastDelaySeconds) or 2.0)
 local MIN_ABILITY_COOLDOWN_SECONDS = math.max(1, tonumber(BattleBalanceConfig.Defaults.AbilityMinCooldownSeconds) or 1)
@@ -199,6 +210,8 @@ local function buildCardState(slotIndex, cardId)
 		maxHealth = profile.maxHealth,
 		health = profile.maxHealth,
 		nextAttackAt = 0,
+		-- Server-side lockout used to halt auto-attacks while abilities/multi-hit visuals play.
+		attackLockedUntil = 0,
 		nextAbilityAt = 0,
 		abilityId = profile.abilityId,
 		abilityCooldownSeconds = abilityCooldownSeconds,
@@ -366,6 +379,17 @@ end
 local function runCombatLoop(session)
 	task.spawn(function()
 		local t0 = os.clock()
+		-- Fast lookup for server-side lockouts by (userId, slotIndex).
+		local cardStateByUserId = {}
+		for _, userId in ipairs(session.playerUserIds) do
+			local bySlot = {}
+			for _, st in ipairs(session.cardStatesByUserId[userId] or {}) do
+				if st and st.slotIndex ~= nil then
+					bySlot[st.slotIndex] = st
+				end
+			end
+			cardStateByUserId[userId] = bySlot
+		end
 		local entryEvents = {}
 		local entryAttacks = {}
 		CombatAutoAbilities.ApplyOnBattleStartPvp(session, t0, entryEvents, entryAttacks)
@@ -374,6 +398,26 @@ local function runCombatLoop(session)
 				session.hitSeq = (session.hitSeq or 0) + 1
 				attack.hitSeq = session.hitSeq
 			end
+
+			-- Halt auto-attacks for the full duration of entry multi-hit visuals.
+			for i, attack in ipairs(entryAttacks) do
+				local attackerUserId = attack and attack.attackerUserId
+				local attackerSlotIndex = attack and attack.attackerSlotIndex
+				if attackerUserId ~= nil and attackerSlotIndex ~= nil then
+					local attackerState = cardStateByUserId[attackerUserId] and cardStateByUserId[attackerUserId][attackerSlotIndex]
+					if attackerState then
+						local isMulti = (attack.isEntryMultiHit == true)
+							or (attack.isFangFollowup == true)
+							or (attack.isStarburstFollowup == true)
+						local effectiveStagger = isMulti and ENTRY_MULTI_HIT_STAGGER_SECONDS or SINGLE_HIT_STAGGER_SECONDS
+						local displayIndex = ((attack.isFangFollowup == true or attack.isStarburstFollowup == true) and i)
+							or tonumber(attack and attack.entryHitIndex) or i
+						local delay = math.max(0, displayIndex - 1) * effectiveStagger
+						local lockUntil = t0 + delay + ATTACK_ANIM_LOCK_SECONDS
+						attackerState.attackLockedUntil = math.max(tonumber(attackerState.attackLockedUntil) or 0, lockUntil)
+					end
+				end
+			end
 		end
 		if #entryEvents > 0 or #entryAttacks > 0 then
 			emitStateUpdate(session, {
@@ -381,6 +425,61 @@ local function runCombatLoop(session)
 				abilityEvents = entryEvents,
 				attacks = entryAttacks,
 			})
+		end
+
+		local function appendPvpAttackAndMaybeFollowUps(attacksThisTick, lastHitByTargetKey, attacker, attackerUserId, defenders, targetUserId, now)
+			if #defenders <= 0 then
+				return 0
+			end
+
+			local target = defenders[math.random(1, #defenders)]
+			local rawDamage = CombatFormulas.GetEffectiveAttack(attacker, now)
+			local hitResult = DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
+
+			session.hitSeq = (session.hitSeq or 0) + 1
+			table.insert(attacksThisTick, {
+				attackerUserId = attackerUserId,
+				attackerSlotIndex = attacker.slotIndex,
+				targetUserId = targetUserId,
+				targetSlotIndex = target.slotIndex,
+				damage = hitResult.finalDamage,
+				rawDamage = hitResult.rawDamage,
+				isCrit = hitResult.isCrit,
+				isDodged = hitResult.isDodged,
+				absorbed = hitResult.absorbed,
+				hitSeq = session.hitSeq,
+			})
+			lastHitByTargetKey[tostring(targetUserId) .. ":" .. tostring(target.slotIndex)] = attacker
+
+			local totalHits = 1
+			local followUps = CombatFollowUpDispatcher.maybeGetFollowUps(attacker, target, hitResult, now, session)
+			if followUps then
+				for _, follow in ipairs(followUps) do
+					session.hitSeq = (session.hitSeq or 0) + 1
+					table.insert(attacksThisTick, {
+						attackerUserId = attackerUserId,
+						attackerSlotIndex = attacker.slotIndex,
+						targetUserId = targetUserId,
+						targetSlotIndex = target.slotIndex,
+						damage = follow.finalDamage,
+						rawDamage = follow.rawDamage,
+						isCrit = follow.isCrit,
+						isDodged = follow.isDodged,
+						absorbed = follow.absorbed,
+						isFangFollowup = follow.isFangFollowup == true,
+						isStarburstFollowup = follow.isStarburstFollowup == true,
+						hitSeq = session.hitSeq,
+					})
+					totalHits += 1
+				end
+			end
+
+			if totalHits > 1 then
+				local multiHitLock = now + math.max(0, totalHits - 1) * ENTRY_MULTI_HIT_STAGGER_SECONDS + ATTACK_ANIM_LOCK_SECONDS
+				attacker.attackLockedUntil = math.max(tonumber(attacker.attackLockedUntil) or 0, multiHitLock)
+			end
+
+			return totalHits
 		end
 
 		while session.phase == PvpProtocol.SessionPhase.InProgress do
@@ -416,7 +515,7 @@ local function runCombatLoop(session)
 						-- Sealed: abilities disabled until seal ends.
 						attacker.nextAbilityAt = sealUntil + 0.01
 					else
-						CombatAutoAbilities.TryApply(
+						local applied = CombatAutoAbilities.TryApply(
 							session.cardStatesByUserId[session.playerAUserId],
 							attacker,
 							now,
@@ -426,35 +525,35 @@ local function runCombatLoop(session)
 								opponents = aliveCards(session.cardStatesByUserId[session.playerBUserId]),
 							}
 						)
+						if applied == true then
+							attacker.attackLockedUntil = math.max(tonumber(attacker.attackLockedUntil) or 0, now + ATTACK_ANIM_LOCK_SECONDS)
+						end
 						attacker.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(attacker.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
 					end
 				end
 
 				if attacker.nextAttackAt <= now then
-					local stunUntil = tonumber(attacker.stunUntil) or 0
-					if stunUntil > now then
-						-- Stunned: attacks disabled until stun ends.
-						attacker.nextAttackAt = stunUntil + 0.01
+					local lockUntil = tonumber(attacker.attackLockedUntil) or 0
+					if lockUntil > now then
+						attacker.nextAttackAt = math.max(tonumber(attacker.nextAttackAt) or 0, lockUntil)
 					else
-						local defenders = aliveCards(session.cardStatesByUserId[session.playerBUserId])
-						if #defenders > 0 then
-							local target = defenders[math.random(1, #defenders)]
-							local rawDamage = CombatFormulas.GetEffectiveAttack(attacker, now)
-							local hitResult = DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
-							table.insert(attacksThisTick, {
-								attackerUserId = session.playerAUserId,
-								attackerSlotIndex = attacker.slotIndex,
-								targetUserId = session.playerBUserId,
-								targetSlotIndex = target.slotIndex,
-								damage = hitResult.finalDamage,
-								rawDamage = hitResult.rawDamage,
-								isCrit = hitResult.isCrit,
-								isDodged = hitResult.isDodged,
-								absorbed = hitResult.absorbed,
-							})
-							lastHitByTargetKey[tostring(session.playerBUserId) .. ":" .. tostring(target.slotIndex)] = attacker
+						local stunUntil = tonumber(attacker.stunUntil) or 0
+						if stunUntil > now then
+							-- Stunned: attacks disabled until stun ends.
+							attacker.nextAttackAt = stunUntil + 0.01
+						else
+							local defenders = aliveCards(session.cardStatesByUserId[session.playerBUserId])
+							appendPvpAttackAndMaybeFollowUps(
+								attacksThisTick,
+								lastHitByTargetKey,
+								attacker,
+								session.playerAUserId,
+								defenders,
+								session.playerBUserId,
+								now
+							)
+							attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 						end
-						attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 					end
 				end
 			end
@@ -468,7 +567,7 @@ local function runCombatLoop(session)
 					elseif sealUntil > now then
 						attacker.nextAbilityAt = sealUntil + 0.01
 					else
-						CombatAutoAbilities.TryApply(
+						local applied = CombatAutoAbilities.TryApply(
 							session.cardStatesByUserId[session.playerBUserId],
 							attacker,
 							now,
@@ -478,36 +577,34 @@ local function runCombatLoop(session)
 								opponents = aliveCards(session.cardStatesByUserId[session.playerAUserId]),
 							}
 						)
+						if applied == true then
+							attacker.attackLockedUntil = math.max(tonumber(attacker.attackLockedUntil) or 0, now + ATTACK_ANIM_LOCK_SECONDS)
+						end
 						attacker.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(attacker.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
 					end
 				end
 
 				if attacker.nextAttackAt <= now then
-					local stunUntil = tonumber(attacker.stunUntil) or 0
-					if stunUntil > now then
-						attacker.nextAttackAt = stunUntil + 0.01
+					local lockUntil = tonumber(attacker.attackLockedUntil) or 0
+					if lockUntil > now then
+						attacker.nextAttackAt = math.max(tonumber(attacker.nextAttackAt) or 0, lockUntil)
 					else
-						local defenders = aliveCards(session.cardStatesByUserId[session.playerAUserId])
-						if #defenders > 0 then
-							local target = defenders[math.random(1, #defenders)]
-							local rawDamage = CombatFormulas.GetEffectiveAttack(attacker, now)
-							local hitResult = DamagePipeline.ResolveHit(attacker, target, rawDamage, now)
-							session.hitSeq = (session.hitSeq or 0) + 1
-							table.insert(attacksThisTick, {
-								attackerUserId = session.playerBUserId,
-								attackerSlotIndex = attacker.slotIndex,
-								targetUserId = session.playerAUserId,
-								targetSlotIndex = target.slotIndex,
-								damage = hitResult.finalDamage,
-								rawDamage = hitResult.rawDamage,
-								isCrit = hitResult.isCrit,
-								isDodged = hitResult.isDodged,
-								absorbed = hitResult.absorbed,
-								hitSeq = session.hitSeq,
-							})
-							lastHitByTargetKey[tostring(session.playerAUserId) .. ":" .. tostring(target.slotIndex)] = attacker
+						local stunUntil = tonumber(attacker.stunUntil) or 0
+						if stunUntil > now then
+							attacker.nextAttackAt = stunUntil + 0.01
+						else
+							local defenders = aliveCards(session.cardStatesByUserId[session.playerAUserId])
+							appendPvpAttackAndMaybeFollowUps(
+								attacksThisTick,
+								lastHitByTargetKey,
+								attacker,
+								session.playerBUserId,
+								defenders,
+								session.playerAUserId,
+								now
+							)
+							attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 						end
-						attacker.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(attacker, now, DEFAULT_ATTACK_INTERVAL_SECONDS)
 					end
 				end
 			end

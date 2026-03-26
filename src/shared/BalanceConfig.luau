@@ -37,12 +37,15 @@ BalanceConfig.LUCK_MULTIPLIER_PER_POINT = 0.05
 BalanceConfig.LUCK_MULTIPLIER_CAP = 5.0
 
 -- Base rarity drop rates (percentages, must sum to 100)
+-- Transcendent is above God (see EconomyService RARITY_ORDER); keep ultra-rare base weight.
 BalanceConfig.BASE_RARITY_RATES = {
+	Transcendent = 0.005, -- 0.005% base chance
 	God = 0.01,      -- 0.01% base chance
 	Mythic = 0.5,    -- 0.5% base chance
 	Legendary = 1,   -- 1% base chance
 	Rare = 30,       -- 30% base chance
-	Uncommon = 68.49, -- 68.49% base chance
+	Uncommon = 28.485, -- split with Common below; luck does not scale Uncommon/Common
+	Common = 40,     -- 40% base chance (idle can roll Common cards)
 }
 
 -- ============================================================================
@@ -289,11 +292,13 @@ function BalanceConfig.GetRarityRatesWithLuck(luckValue)
 	local luckMult = BalanceConfig.CalculateLuckMultiplier(luckValue)
 	
 	return {
+		Transcendent = BalanceConfig.BASE_RARITY_RATES.Transcendent * luckMult,
 		God = BalanceConfig.BASE_RARITY_RATES.God * luckMult,
 		Mythic = BalanceConfig.BASE_RARITY_RATES.Mythic * luckMult,
 		Legendary = BalanceConfig.BASE_RARITY_RATES.Legendary * luckMult,
 		Rare = BalanceConfig.BASE_RARITY_RATES.Rare * luckMult,
 		Uncommon = BalanceConfig.BASE_RARITY_RATES.Uncommon,
+		Common = BalanceConfig.BASE_RARITY_RATES.Common,
 	}
 end
 

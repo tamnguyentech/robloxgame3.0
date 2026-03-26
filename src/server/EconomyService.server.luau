@@ -84,12 +84,19 @@ end
 
 local function pickCardForRarity(rarity)
 	local function isRollEligible(cardId)
+			if cardId == "BeliodusX" then
+				return false
+			end
 		local data = CardDatabase.GetCardData(cardId)
+			if not data then
+				return false
+			end
 		return not (
-			data and (
+				data and (
 				data.Rarity == "God" or
 				data.Rarity == "Transcendent" or
-				data.Category == "NPC"
+				data.Category == "NPC" or
+				data.Category == "Transformation"
 			)
 		)
 	end

@@ -3,13 +3,23 @@
 --
 -- Merge order for combat is unchanged: CardDatabase row + defaults; cooldown can fall back to DefaultCooldownSeconds here.
 --
+-- Where triggers run (implement new behavior in these modules):
+--   AutoTimer  → CombatAutoAbilities.TryApply → EffectResolver.ApplyEffect (timer tick)
+--   OnEntry    → CombatAutoAbilities.ApplyOnBattleStartPvp / ApplyOnBattleStartNpc → EffectResolver
+--   Passive    → CombatFormulas / other stat readers (no cast), e.g. low-HP damage in GetEffectiveAttack
+--   OnHit      → CombatOnHitAbilities (after successful hit; EffectType must have a handler there)
+--   Attached strike (e.g. fang follow-up) → CombatFangFollowup + PvpBattleService / NpcBattleService / EffectResolver multihit
+-- Hybrid: use AutoTimer or Passive as Trigger and set OnHitEffectType to also run an on-hit handler
+--   registered in CombatOnHitAbilities (same string family as EffectType for timer effects).
+--
 -- Record shape (extend as you add systems):
 --   Id                         string   (same as table key; must match CardData.AbilityId)
 --   Name                       string?  display name
 --   Description                string?
---   Trigger                    string?  "AutoTimer" (current auto-battle), later: OnHit, OnDeath, ...
+--   Trigger                    string?  AutoTimer | OnEntry | Passive | OnHit
+--   OnHitEffectType            string?  optional; when set, CombatOnHitAbilities runs this even if Trigger is not OnHit
 --   Targeting                  string?  passed to target resolver / legacy tags
---   EffectType                 string   engine branch in CombatAutoAbilities / future EffectResolver
+--   EffectType                 string   branch key for EffectResolver (timer/entry) or CombatOnHitAbilities (OnHit)
 --   Magnitude                  number?
 --   DurationSeconds            number?
 --   DefaultCooldownSeconds     number   fallback when CardData.AbilityCooldownSeconds omitted
@@ -44,73 +54,7 @@ AbilityDatabase.Abilities = {
 		Targeting = "AllAllies",
 		Description = "Team attack speed boost.",
 	},
-	AttackSpeedBoost = {
-		Id = "AttackSpeedBoost",
-		Name = "Attack Speed Boost",
-		Tags = {"Buff", "Speed"},
-		Conditions = {},
-		HandlerModule = nil,
-		Trigger = "AutoTimer",
-		EffectType = "TeamAttackSpeedBoost",
-		Magnitude = 0.35,
-		DurationSeconds = 5.0,
-		Effects = {
-			{
-				EffectType = "TeamAttackSpeedBoost",
-				Targeting = "AllAllies",
-				Magnitude = 0.35,
-				Duration = 5.0,
-			},
-		},
-		DefaultCooldownSeconds = 12,
-		Targeting = "AllAllies",
-		Description = "Raises ally attack speed temporarily.",
-	},
-	AttackDamageBoost = {
-		Id = "AttackDamageBoost",
-		Name = "Attack Damage Boost",
-		Tags = {"Buff", "Damage"},
-		Conditions = {},
-		HandlerModule = nil,
-		Trigger = "AutoTimer",
-		EffectType = "TeamAttackDamageBoost",
-		Magnitude = 0.5,
-		DurationSeconds = 5.0,
-		Effects = {
-			{
-				EffectType = "TeamAttackDamageBoost",
-				Targeting = "AllAllies",
-				Magnitude = 0.5,
-				Duration = 5.0,
-			},
-		},
-		DefaultCooldownSeconds = 15,
-		Targeting = "AllAllies",
-		Description = "Raises ally damage temporarily.",
-	},
-	HealAlly = {
-		Id = "HealAlly",
-		Name = "Heal Ally",
-		Tags = {"Heal"},
-		Conditions = {},
-		HandlerModule = nil,
-		Trigger = "AutoTimer",
-		EffectType = "HealLowestAlly",
-		Magnitude = 0.3,
-		DurationSeconds = 0,
-		Effects = {
-			{
-				EffectType = "HealLowestAlly",
-				Targeting = "LowestHealthAlly",
-				Magnitude = 0.3,
-				Duration = 0,
-			},
-		},
-		DefaultCooldownSeconds = 9,
-		Targeting = "LowestHealthAlly",
-		Description = "Heals the lowest-HP ally.",
-	},
-	-- Mr Satan — on entry debuff enemy party outgoing attack (PvP: cards; PvE: boss).
+
 	WorldChampionsBluff = {
 		Id = "WorldChampionsBluff",
 		Name = "World Champion's Bluff",
@@ -153,6 +97,70 @@ AbilityDatabase.Abilities = {
 		DefaultCooldownSeconds = 0,
 		Description = "When the battle starts, the last ally gains 50% of this card's health.",
 	},
+
+	hamonmentor = {
+		Id = "hamonmentor",
+		Name = "Hamon Mentor",
+		Tags = { "Buff", "OnEntry", "Team" },
+		Conditions = {},
+		HandlerModule = nil,
+		Trigger = "OnEntry",
+		EffectType = "HamonMentorOnEntry",
+		Magnitude = 0.10,
+		DurationSeconds = 9999,
+		Effects = {
+			{
+				EffectType = "HamonMentorOnEntry",
+				Targeting = "AllAllies",
+				Magnitude = 0.10,
+				Duration = 9999,
+			},
+		},
+		DefaultCooldownSeconds = 0,
+		Description = "On entry, buff all allies: +10% Max HP (and matching heal) and +10% attack for the battle.",
+	},
+	cowardscourage = {
+		Id = "cowardscourage",
+		Name = "Coward's Courage",
+		Tags = { "Buff", "OnEntry" },
+		Conditions = {},
+		HandlerModule = nil,
+		Trigger = "OnEntry",
+		EffectType = "CowardScourageOnEntry",
+		Magnitude = 0.05,
+		DurationSeconds = 0,
+		Effects = {
+			{
+				EffectType = "CowardScourageOnEntry",
+				Targeting = "Self",
+				Magnitude = 0.05,
+				Duration = 0,
+			},
+		},
+		DefaultCooldownSeconds = 0,
+		Description = "When the battle starts, this card gains 5% of the strongest ally's Attack and Max HP (strongest by Attack + Max HP).",
+	},
+	killerinstincts = {
+		Id = "killerinstincts",
+		Name = "Killer Instincts",
+		Tags = { "Buff", "Dodge", "Speed", "OnEntry" },
+		Conditions = {},
+		HandlerModule = nil,
+		Trigger = "OnEntry",
+		EffectType = "KillerInstinctsOnEntry",
+		Magnitude = 0.1,
+		DurationSeconds = 9999,
+		Effects = {
+			{
+				EffectType = "KillerInstinctsOnEntry",
+				Targeting = "Self",
+				Magnitude = 0.1,
+				Duration = 9999,
+			},
+		},
+		DefaultCooldownSeconds = 0,
+		Description = "On entry, gain +10% Dodge chance, +10% attack speed, and the next eligible incoming attack is guaranteed dodged once.",
+	},
 	antimagic = {
 		Id = "antimagic",
 		Name = "Anti-Magic",
@@ -175,9 +183,9 @@ AbilityDatabase.Abilities = {
 		DefaultCooldownSeconds = 0,
 		Description = "On battle start, seal one enemy's abilities for 10 seconds. Passive: take 50% reduced damage from attackers with Category Mage.",
 	},
-	StunOneEnemyOnEntry = {
-		Id = "StunOneEnemyOnEntry",
-		Name = "Stun (On Entry)",
+	evilcontainmentwave = {
+		Id = "evilcontainmentwave",
+		Name = "Evil Containment Wave",
 		Tags = {"Debuff", "OnEntry"},
 		Conditions = {},
 		HandlerModule = nil,
@@ -264,6 +272,57 @@ AbilityDatabase.Abilities = {
 		DefaultCooldownSeconds = 0,
 		Description = "Passive: every landed attack has a 10% chance to deal 150% more damage.",
 	},
+	rock = {
+		Id = "rock",
+		Name = "Jajanken: Rock",
+		Tags = { "Passive", "Damage", "OnAttack" },
+		Conditions = {},
+		HandlerModule = nil,
+		Trigger = "OnEntry",
+		EffectType = "DamageMultiplierOnHitProc",
+		Magnitude = 0.33,
+		ProcDamageBonus = 1,
+		DurationSeconds = 9999,
+		Effects = {
+			{
+				EffectType = "DamageMultiplierOnHitProc",
+				Targeting = "Self",
+				Magnitude = 0.33,
+				ProcDamageBonus = 1,
+				Duration = 9999,
+			},
+		},
+		DefaultCooldownSeconds = 0,
+		Description = "Each landed attack has a 33% chance to deal double damage.",
+	},
+	fangoverfang = {
+		Id = "fangoverfang",
+		Name = "Fang over Fang",
+		Tags = { "Passive", "Damage", "OnAttack" },
+		Conditions = {},
+		HandlerModule = nil,
+		Trigger = "Passive",
+		EffectType = "FangFollowupAttack",
+		Magnitude = 0.2,
+		DurationSeconds = 0,
+		DefaultCooldownSeconds = 0,
+		Description = "After each connecting strike, deal a follow-up hit for 20% of this card's effective attack (no extra chain).",
+	},
+	starburstscream = {
+		Id = "starburstscream",
+		Name = "Starburst Scream",
+		Tags = { "Passive", "Damage", "OnAttack" },
+		Conditions = {},
+		HandlerModule = nil,
+		Trigger = "Passive",
+		EffectType = "StarburstScreamAttack",
+		-- Counter burst:
+		-- After every 2 connecting primary hits, unleash 3 follow-up hits.
+		Magnitude = 0.5,
+		DurationSeconds = 0,
+		DefaultCooldownSeconds = 0,
+		Description = "After every 2 connecting primary hits, unleash 3 follow-up hits that deal 50% of this card's effective attack.",
+	},
 	sunlightyellowoverdrive = {
 		Id = "sunlightyellowoverdrive",
 		Name = "Sunlight Yellow Overdrive",
@@ -304,6 +363,108 @@ AbilityDatabase.Abilities = {
 		DefaultCooldownSeconds = 10,
 		Targeting = "OneRandomEnemy",
 		Description = "Every 10 seconds, mark one enemy to take 15% more damage for 4 seconds.",
+	},
+	outrage = { 
+		Id = "outrage",
+		Name = "Outrage",
+		Tags = {"Passive", "Damage"},
+		Conditions = {},
+		HandlerModule = nil,
+		Trigger = "Passive",
+		EffectType = "SelfDamageWhenLowHp",
+		Magnitude = 0.2,
+		HpRatioThreshold = 0.5,
+		DurationSeconds = 0,
+		Effects = {
+			{
+				EffectType = "SelfDamageWhenLowHp",
+				Targeting = "Self",
+				Magnitude = 0.2,
+				HpRatioThreshold = 0.5,
+			},
+		},
+		DefaultCooldownSeconds = 0,
+		Description = "While below 50% max HP, this card deals 20% more damage.",
+	},	
+	transmutation = {
+		Id = "transmutation",
+		Name = "Transmutation",
+		Tags = { "OnHit", "Buff" },
+		Conditions = {},
+		HandlerModule = nil,
+		Trigger = "OnHit",
+		EffectType = "TransmutationOnHit",
+		Magnitude = 0.1,
+		DurationSeconds = 0,
+		Effects = {
+			{
+				EffectType = "TransmutationOnHit",
+				Targeting = "Self",
+				Magnitude = 0.1,
+			},
+		},
+		DefaultCooldownSeconds = 0,
+		Description = "After each successful hit, alternates +10% base attack or +10% max HP (and heals by the same amount).",
+	},
+	errornull = {
+		Id = "errornull",
+		Name = "Error Null",
+		Tags = {"Passive", "Damage"},
+		Conditions = {},
+		HandlerModule = nil,
+		Trigger = "Passive",
+		EffectType = "MissingHpDamageBoost",
+		Magnitude = 1,
+		DurationSeconds = 0,
+		Effects = {
+			{
+				EffectType = "MissingHpDamageBoost",
+				Targeting = "Self",
+				Magnitude = 1,
+			},
+		},
+		DefaultCooldownSeconds = 0,
+		Description = "This card gains damage equal to missing health.",
+	},
+	firedragonsroar = {
+		Id = "firedragonsroar",
+		Name = "Fire Dragonsroar",
+		Tags = {"OnHit", "Damage"},
+		Conditions = {},
+		HandlerModule = nil,
+		Trigger = "OnHit",
+		EffectType = "FireDragonRoarOnHit",
+		Magnitude = 0.10,
+		DurationSeconds = 0,
+		DefaultCooldownSeconds = 0,
+		Effects = {
+			{
+				EffectType = "FireDragonRoarOnHit",
+				Targeting = "Target",
+				Magnitude = 0.10,
+			},
+		},
+		Description = "On the first successful hit, deal extra damage equal to 10% of the enemy's current HP.",
+	},
+	selfdestruct = {
+		Id = "selfdestruct",
+		Name = "Self Destruct",
+		Tags = {"OnDeath", "Damage"},
+		Conditions = {},
+		HandlerModule = nil,
+		Trigger = "OnDeath",
+		EffectType = "SelfDestructOnDeath",
+		Magnitude = 1,
+		DurationSeconds = 0,
+		Effects = {
+			{
+				EffectType = "SelfDestructOnDeath",
+				Targeting = "Enemy",
+				Magnitude = 1,
+			},
+		},
+		DefaultCooldownSeconds = 0,
+		Description = "On death, deal 100% of this card's max HP as damage to the enemy that killed it.",
 	},
 }
 

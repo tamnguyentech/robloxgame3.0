@@ -10,10 +10,19 @@ local CombatFormulas = require(ReplicatedStorage:WaitForChild("Shared"):WaitForC
 local DamagePipeline = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("DamagePipeline"))
 local CombatAutoAbilities = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatAutoAbilities"))
 local CombatEventBus = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatEventBus"))
+local CombatFollowUpDispatcher = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatFollowUpDispatcher"))
+require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatOnHitAbilities"))
+require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("combat"):WaitForChild("CombatOnDeathAbilities"))
 
 local FIRST_ATTACK_STAGGER_SECONDS = 2
 local NPC_COUNTER_ATTACK_INTERVAL_SECONDS = 4
 local DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS = 5
+-- Client-side animation pacing for entry multi-hit visuals.
+-- Keep in sync with `NpcBattleClient`'s `ENTRY_MULTI_HIT_STAGGER_SEC`.
+local MULTI_HIT_VISUAL_STAGGER_SECONDS = 0.34
+-- Keep Starburst's 3 follow-up hits readable as a true "triple hit" (~1s window).
+local BURST_FOLLOWUP_STAGGER_SECONDS = 0.5
+local ATTACK_ANIM_LOCK_SECONDS = 0.35
 local PVE_ABILITY_TICK_INTERVAL_SECONDS = math.max(0.02, tonumber(BattleBalanceConfig.Pve.AbilityTickIntervalSeconds) or 0.08)
 local DEFAULT_ABILITY_FIRST_CAST_DELAY_SECONDS = math.max(0, tonumber(BattleBalanceConfig.Pve.AbilityFirstCastDelaySeconds) or 2.0)
 local MIN_ABILITY_COOLDOWN_SECONDS = math.max(1, tonumber(BattleBalanceConfig.Defaults.AbilityMinCooldownSeconds) or 1)
@@ -40,8 +49,8 @@ local NPC_REGISTRY = {
 		HoldDuration = 0.12,
 		NpcCardId = "PerfectCell",
 		NpcCardName = "Perfect Cell",
-		NpcMaxHealth = 10000000000,
-		NpcAttack = 4000,
+		NpcMaxHealth = 1000000,
+		NpcAttack = 5000,
 	},
 	Aokoji = {
 		NpcId = "Aokoji",
@@ -390,6 +399,19 @@ local function shuffleInPlace(list)
 	end
 end
 
+local function applyPlayerHitDamageToNpc(session, hitResult, now)
+	local dealtDamage = hitResult.finalDamage
+	local incomingBonusUntil = tonumber(session.npcIncomingDamageBonusUntil) or 0
+	if incomingBonusUntil > now then
+		local incomingBonusFraction = math.clamp(tonumber(session.npcIncomingDamageBonusFraction) or 0, 0, 2)
+		if incomingBonusFraction > 0 then
+			dealtDamage = math.max(0, math.floor(dealtDamage * (1 + incomingBonusFraction)))
+		end
+	end
+	DamagePipeline.ApplyDamageToNpc(session, dealtDamage)
+	return dealtDamage
+end
+
 local function sendNpcState(player, session, payload)
 	local out = payload or {}
 	session.hitSeq = (session.hitSeq or 0) + 1
@@ -456,40 +478,29 @@ local function runNpcAttackLoop(player, session)
 				cardState.nextAbilityAt = tonumber(attacker.nextAbilityAt) or tonumber(cardState.nextAbilityAt) or 0
 
 				if cardState.abilityId ~= "" and cardState.nextAbilityAt and cardState.nextAbilityAt <= now then
-					if CombatAutoAbilities.TryApply(session.playerCardStates, cardState, now, abilityEvents, { session = session, mode = "Npc" }) then
+					local applied = CombatAutoAbilities.TryApply(session.playerCardStates, cardState, now, abilityEvents, { session = session, mode = "Npc" })
+					if applied == true then
 						dealtAny = true
+						cardState.attackLockedUntil = math.max(tonumber(cardState.attackLockedUntil) or 0, now + ATTACK_ANIM_LOCK_SECONDS)
 					end
 					cardState.nextAbilityAt = now + math.max(MIN_ABILITY_COOLDOWN_SECONDS, tonumber(cardState.abilityCooldownSeconds) or MIN_ABILITY_COOLDOWN_SECONDS)
 					attacker.nextAbilityAt = cardState.nextAbilityAt
 				end
 
-				if cardState.nextAttackAt <= now then
+				local lockUntil = tonumber(cardState.attackLockedUntil) or 0
+				if lockUntil > now then
+					-- While busy staging abilities/multi-hits, skip auto-attacks.
+					cardState.nextAttackAt = math.max(tonumber(cardState.nextAttackAt) or 0, lockUntil)
+					attacker.nextAttackAt = cardState.nextAttackAt
+				elseif cardState.nextAttackAt <= now then
 					local rawDamage = CombatFormulas.GetEffectiveAttack(cardState, now)
-					local hitResult = DamagePipeline.ResolveHit(cardState, nil, rawDamage, now)
-					local dealtDamage = hitResult.finalDamage
-					local incomingBonusUntil = tonumber(session.npcIncomingDamageBonusUntil) or 0
-					if incomingBonusUntil > now then
-						local incomingBonusFraction = math.clamp(tonumber(session.npcIncomingDamageBonusFraction) or 0, 0, 2)
-						if incomingBonusFraction > 0 then
-							dealtDamage = math.max(0, math.floor(dealtDamage * (1 + incomingBonusFraction)))
-						end
-					end
-					DamagePipeline.ApplyDamageToNpc(session, dealtDamage)
+					local hitResult = DamagePipeline.ResolveHit(cardState, nil, rawDamage, now, { session = session })
+					local dealtDamage = applyPlayerHitDamageToNpc(session, hitResult, now)
 					cardState.nextAttackAt = now + CombatFormulas.GetEffectiveAttackInterval(cardState, now, DEFAULT_PLAYER_ATTACK_INTERVAL_SECONDS)
 					attacker.nextAttackAt = cardState.nextAttackAt
 					dealtAny = true
-
-					sendNpcState(player, session, {
-						attackerCardId = attacker.cardId,
-						attackerSlotIndex = attacker.slotIndex,
-						dealtDamage = dealtDamage,
-						rawDamage = hitResult.rawDamage,
-						isCrit = hitResult.isCrit,
-						isDodged = hitResult.isDodged,
-						absorbed = hitResult.absorbed,
-						abilityEvents = abilityEvents,
-					})
-					stateSentThisTick = true
+					session.hitSeq = (session.hitSeq or 0) + 1
+					local primaryHitSeq = session.hitSeq
 
 					if session.npcHealth <= 0 then
 						if not session.npcDeathNotified then
@@ -516,6 +527,79 @@ local function runNpcAttackLoop(player, session)
 						finishSession(player, "NpcDefeated")
 						break
 					end
+
+					local followUps = CombatFollowUpDispatcher.maybeGetFollowUps(cardState, nil, hitResult, now, session)
+					local burstNpcAttacks = nil
+					if followUps then
+						local npcDefeated = false
+						burstNpcAttacks = {}
+						for i, follow in ipairs(followUps) do
+							local dealtFollow = applyPlayerHitDamageToNpc(session, follow, now)
+							dealtAny = true
+							session.hitSeq = (session.hitSeq or 0) + 1
+							table.insert(burstNpcAttacks, {
+								attackerCardId = attacker.cardId,
+								attackerSlotIndex = attacker.slotIndex,
+								dealtDamage = dealtFollow,
+								rawDamage = follow.rawDamage,
+								isCrit = follow.isCrit,
+								isDodged = follow.isDodged,
+								absorbed = follow.absorbed,
+								isFangFollowup = follow.isFangFollowup == true,
+								isStarburstFollowup = follow.isStarburstFollowup == true,
+								entryHitIndex = i,
+								hitSeq = session.hitSeq,
+							})
+
+							local burstLockUntil = now + math.max(0, i) * BURST_FOLLOWUP_STAGGER_SECONDS + ATTACK_ANIM_LOCK_SECONDS
+							cardState.attackLockedUntil = math.max(tonumber(cardState.attackLockedUntil) or 0, burstLockUntil)
+
+							if session.npcHealth <= 0 then
+								if not session.npcDeathNotified then
+									session.npcDeathNotified = true
+									CombatEventBus.Fire("OnDeath", {
+										session = session,
+										unit = {
+											cardId = session.npcCardId,
+											cardName = session.npcCardName,
+											health = session.npcHealth,
+										},
+										killer = cardState,
+									})
+									CombatEventBus.Fire("OnKill", {
+										session = session,
+										attacker = cardState,
+										victim = {
+											cardId = session.npcCardId,
+											cardName = session.npcCardName,
+											health = session.npcHealth,
+										},
+									})
+								end
+								finishSession(player, "NpcDefeated")
+								npcDefeated = true
+								break
+							end
+						end
+						if npcDefeated then
+							break
+						end
+					end
+
+					sendNpcState(player, session, {
+						attackerCardId = attacker.cardId,
+						attackerSlotIndex = attacker.slotIndex,
+						dealtDamage = dealtDamage,
+						rawDamage = hitResult.rawDamage,
+						isCrit = hitResult.isCrit,
+						isDodged = hitResult.isDodged,
+						absorbed = hitResult.absorbed,
+						isFangFollowup = false,
+						hitSeq = primaryHitSeq,
+						burstNpcAttacks = burstNpcAttacks,
+						abilityEvents = abilityEvents,
+					})
+					stateSentThisTick = true
 				end
 			end
 
@@ -529,11 +613,14 @@ local function runNpcAttackLoop(player, session)
 					if #alive > 0 then
 						local target = alive[math.random(1, #alive)]
 						local rawDamage = CombatFormulas.GetEffectiveNpcOutgoingDamage(session, session.npcAttack, now)
+						local npcProf = CardDatabase.GetCombatProfile(session.npcCardId, nil)
+						local npcCat = (npcProf and npcProf.cardCategory) or "Uncategorized"
 						local hitResult = DamagePipeline.ResolveHit({
 							cardId = session.npcCardId,
 							cardName = session.npcCardName,
 							baseAttack = session.npcAttack,
 							statBlock = {},
+							cardCategory = npcCat,
 						}, target, rawDamage, now)
 						pruneDeadAttackers(session)
 						local interval = CardDatabase.GetNpcCounterAttackIntervalSeconds(session.npcCardId, NPC_COUNTER_ATTACK_INTERVAL_SECONDS)
@@ -857,6 +944,8 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 					damageBoostUntil = 0,
 					-- Generic on-hit damage procs (see AbilityDatabase / EffectResolver / DamagePipeline).
 					onHitDamageProcs = {},
+					abilityCounters = {},
+					abilityFlags = {},
 					-- Reduced healing debuff (fraction 0..1), applied in DamagePipeline.ApplyHealToUnit.
 					healingReductionFraction = 0,
 					healingReductionUntil = 0,
@@ -867,6 +956,13 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 					nextAttackAt = 0,
 					nextAbilityAt = 0,
 					deathNotified = false,
+					cardCategory = profile.cardCategory or "Uncategorized",
+					damageReductionVsMageAttacks = 0,
+					incomingDamageBonusFraction = 0,
+					incomingDamageBonusUntil = 0,
+					-- Server-side lock to prevent starting another basic attack
+					-- while the client is still staging multi-hits/ability visuals.
+					attackLockedUntil = 0,
 				})
 				local n = #session.playerCardStates
 				session.playerCardStates[n]["statBlock"] = statBlockCopy
@@ -883,6 +979,27 @@ battleActionEvent.OnServerEvent:Connect(function(player, payload)
 			for _, attack in ipairs(entryNpcAttacks) do
 				session.hitSeq = (session.hitSeq or 0) + 1
 				attack.hitSeq = session.hitSeq
+			end
+		end
+
+		-- Lock per-card auto-attacks while the client is staging entry hits.
+		if #entryNpcAttacks > 0 then
+			local lockBySlot = {}
+			for i, attack in ipairs(entryNpcAttacks) do
+				if type(attack) == "table" and type(attack.attackerSlotIndex) == "number" then
+					local isFollowup = attack.isFangFollowup == true or attack.isStarburstFollowup == true
+					local displayIndex = (isFollowup and i) or tonumber(attack.entryHitIndex) or i
+					local delay = math.max(0, displayIndex - 1) * MULTI_HIT_VISUAL_STAGGER_SECONDS
+					local lockUntil = entryNow + delay + ATTACK_ANIM_LOCK_SECONDS
+					lockBySlot[attack.attackerSlotIndex] = math.max(tonumber(lockBySlot[attack.attackerSlotIndex]) or 0, lockUntil)
+				end
+			end
+
+			for _, st in ipairs(session.playerCardStates or {}) do
+				local lockUntil = lockBySlot[st.slotIndex]
+				if type(lockUntil) == "number" and lockUntil > (tonumber(st.attackLockedUntil) or 0) then
+					st.attackLockedUntil = lockUntil
+				end
 			end
 		end
 

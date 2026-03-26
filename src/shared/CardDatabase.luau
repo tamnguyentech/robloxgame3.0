@@ -30,6 +30,19 @@ local CardAbilityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitF
 local CardDatabase = {}
 
 local cardData = {
+    ["arlong"] = {
+        Name = "Shark Pirate",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://81155082453051",
+        AbilityId = "fishmenstrength",
+        AbilityCooldownSeconds = 10,
+        Description = "This card's attacks do 20% more damage and apply bleed for 10% of his damage over ? seconds.",
+    },
     ["lightyagami"] = {
         Name = "Death Writer",
         Attack = 100000,
@@ -80,7 +93,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://112767549806462",
         AbilityId = "antimagic",
         AbilityCooldownSeconds = 10,
-        Description = "When the battle starts, this card inflicts seal on one enemy for 10 seconds. Against cards containing Mage, he takes 50% reduced damage from them and when attacking Mage cards he has a 20% chance to inflict seal on them for ? seconds.",
+        Description = "On battle start, seal one enemy's abilities for 10 seconds. Takes 50% reduced damage from attackers with Category Mage.",
     },
     ["bojji"] = {
         Name = "Mirai",
@@ -96,7 +109,7 @@ local cardData = {
         Description = "When the battle starts, the last ally gains 50% of this card's health.",
     },
     ["denji"] = {
-        Name = "Women Seeking Hunter",
+        Name = "Chainsaw Hunter",
         Attack = 20000,
         Health = 60000,
         AttackIntervalSeconds = 5.0,
@@ -104,9 +117,9 @@ local cardData = {
         Rarity = "Common",
         ArtFitMode = "Fit",
         ArtAssetId = "rbxassetid://111215871489552",
-        AbilityId = "womenbuff",
+        AbilityId = "outrage",
         AbilityCooldownSeconds = 10,
-        Description = "At the start of the battle, buff self damage by 10% for each female in the party.",
+        Description = "While below 50% max HP, deals 20% more damage.",
     },
     ["edwardelric"] = {
         Name = "Metal Alchemist",
@@ -147,6 +160,97 @@ local cardData = {
         AbilityCooldownSeconds = 10,
 		Description = "This card's attacks are followed up by his dog for 20% damage.",
     },
+    ["buggy"] = {
+        Name = "Clown Pirate",
+        Attack = 24000,
+        Health = 70000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Uncommon",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://126163637632477",
+        AbilityId = "detachedbodyfruit",
+        AbilityCooldownSeconds = 10,
+		Description = "Clown Pirate takes 20% reduced damage and has a 20% chance to dodge attacks.",
+    },
+    ["crocodile"] = {
+        Name = "Sand Warlord",
+        Attack = 24500,
+        Health = 71000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://99995548573219",
+        AbilityId = "sandfruit",
+        AbilityCooldownSeconds = 10,
+		Description = "At the start of the battle, this card sets up a sandstorm on the field, buffing all sand cards by 20% stats and slowing the enemy party’s attack speed by ?% while it is active. This card also has a 40% chance to dodge any attacks unless he is bleeding or wet.",
+    },
+    ["roblucci"] = {
+        Name = "Ciper Pol Assassin",
+        Attack = 25000,
+        Health = 72000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://77390957779218",
+        AbilityId = "leopardfruit",
+        AbilityCooldownSeconds = 10,
+        Description = "This card survives the first fatal hit and then transforms into his Leopard form.",
+    },
+    ["robluccileopard"] = {
+        Name = "Ciper Pol Assassin (Leopard)",
+        Attack = 25500,
+        Health = 73000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Transformation",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://87275298507466",
+        AbilityId = "leopardform",
+        AbilityCooldownSeconds = 10,
+        Description = "Upon transformation, heal 50% of his health and buff his damage by 30% and attack speed by 15% ",
+    },
+    ["humandio"] = {
+        Name = "Charismatic Vampire",
+        Attack = 26000,
+        Health = 74000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://75763947106868",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+		Description = "Upon death revive into a vampire with 15% bonus stats and 10% lifesteal.",
+    },
+    ["smoker"] = {
+        Name = "White Hunter",
+        Attack = 26500,
+        Health = 75000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://113241429344209",
+        AbilityId = "smokefruit",
+        AbilityCooldownSeconds = 10,
+		Description = "This card has a 40% chance to dodge attacks unless he has burn. On entry, his first attack stuns the enemy for 1 turn.",
+    },
+    ["enel"] = {
+        Name = "Sky God",
+        Attack = 27000,
+        Health = 76000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Rare",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://105942859868299",
+        AbilityId = "lightningfruit",
+        AbilityCooldownSeconds = 10,
+		Description = "This card’s attacks apply shock for 10% damage and his shock damage has a 10% chance to stun for ? seconds. Every ? seconds, he calls down lightning on a random enemy making them take 20% shock damage.",
+    },
     ["kidcoby"] = {
         Name = "Coward of Justice",
         Attack = 2400,
@@ -171,7 +275,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://73858850936933",
         AbilityId = "killerinstincts",
         AbilityCooldownSeconds = 10,
-        Description = "This card dodges the first attack.",
+        Description = "This card dodges the first attack. He also has 10% dodge chance 10% faster attack speed.",
     },
     ["kirito"] = {
         Name = "Black Swordsman",
@@ -208,9 +312,9 @@ local cardData = {
         Rarity = "Common",
         ArtFitMode = "Fit",
         ArtAssetId = "rbxassetid://100086228347779",
-        AbilityId = "StunOneEnemyOnEntry",
+        AbilityId = "evilcontainmentwave",
         AbilityCooldownSeconds = 10,
-        Description = "At the start of the battle, Turtle Hermit stuns one enemy for ? seconds.",
+        Description = "At the start of the battle, Turtle Hermit stuns one enemy for 5 seconds.",
     },
     ["mob"] = {
         Name = "Restrained Esper",
@@ -221,7 +325,7 @@ local cardData = {
         Rarity = "Common",
         ArtFitMode = "Fit",
         ArtAssetId = "rbxassetid://109730325430363",
-        AbilityId = "???%",
+        AbilityId = "errornull",
         AbilityCooldownSeconds = 10,
         Description = "This card gains damage equal to missing health.",
     },
@@ -253,8 +357,8 @@ local cardData = {
     },
     ["saibaman"] = {
         Name = "Explosive Plant",
-        Attack = 1200,
-        Health = 6000,
+        Attack = 1000,
+        Health = 100000,
         AttackIntervalSeconds = 5.0,
         Category = "Custom",
         Rarity = "Common",
@@ -263,6 +367,32 @@ local cardData = {
         AbilityId = "selfdestruct",
         AbilityCooldownSeconds = 10,
         Description = "On death, this card explodes doing 100% of its max health to the killer.",
+    },
+    ["akame"] = {
+        Name = "Akame",
+        Attack = 30000000,
+        Health = 90000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Legendary",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://100161103230524",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["artoriapendragonsaber"] = {
+        Name = "Artoria Pendragon Saber",
+        Attack = 3000000000,
+        Health = 9000000000,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Mythic",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://136417753688445",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
     },
     ["sakura"] = {
         Name = "Pink Medical Ninja",
@@ -340,7 +470,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://86790998588928",
         AbilityId = "secondgear",
         AbilityCooldownSeconds = 10,
-        Description = "At the start of the battle gain 25% stats.",
+        Description = "At the start of the battle gain 25% stats and 15% faster attack speed.",
     },
     ["ichigo"] = {
         Name = "Substitute Shinigami",
@@ -386,7 +516,7 @@ local cardData = {
         Attack = 40000000,
         Health = 200000000,
         AttackIntervalSeconds = 5.0,
-        Category = "Custom",
+        Category = "Mage",
         Rarity = "Uncommon",
         ArtFitMode = "Fit",
         ArtAssetId = "rbxassetid://79189848936927",
@@ -464,7 +594,7 @@ local cardData = {
         Attack = 110000000,
         Health = 80000000,
         AttackIntervalSeconds = 5.0,
-        Category = "Custom",
+        Category = "Mage",
         Rarity = "Rare",
         ArtFitMode = "Fit",
         ArtAssetId = "rbxassetid://89844517591936",
@@ -538,7 +668,7 @@ local cardData = {
         Description = "At the start of the battle, Bone Ninja loses 15% of his max health to gain 30% damage.",
     },
     ["zabuza"] = {
-        Name = "Mist Swordsman Ninja",
+        Name = "Ninja Swordsman of the Mist",
         Attack = 640000,
         Health = 3200000,
         AttackIntervalSeconds = 5.0,
@@ -676,7 +806,7 @@ local cardData = {
         Rarity = "Uncommon",
         ArtFitMode = "Fit",
         ArtAssetId = "rbxassetid://106883272275852",
-        AbilityId = "StunOneEnemyOnEntry",
+        AbilityId = "",
         AbilityCooldownSeconds = 10,
 		Description = "At the start of the battle, stun an opponent for ? seconds and deal 30% damage",
     },
@@ -1055,7 +1185,7 @@ local cardData = {
         ArtAssetId = "rbxassetid://86073937479874",
         AbilityId = "starsplash",
 		AbilityCooldownSeconds = 12,
-		Description = "At the start of the battle, Sword Maiden does an 8-hit combo against an enemy for 5% damage each. If Black Swordsman is in the party, both cards attacks are synchronized making them follow up on each other’s attacks for 35% of their damage.",
+		Description = "At the start of the battle, Sword Maiden does an 8-hit combo against an enemy for 20% damage each. If Black Swordsman is in the party, both cards attacks are synchronized making them follow up on each other’s attacks.",
     },
     ["misaamane"] = {
         Name = "Eyes of Death",
@@ -1065,7 +1195,7 @@ local cardData = {
         Category = "Demon Slayer",
         Rarity = "Uncommon",
         ArtFitMode = "Crop",
-        ArtAssetId = "rbxassetid://139639316125366",
+        ArtAssetId = "rbxassetid://114241330201227",
         AbilityId = "AttackDamageBoost",
 		AbilityCooldownSeconds = 15,
 		Description = "At the start of the battle, this card charms the enemy party, causing them to not attack for ? seconds. After attacking an enemy once, this card learns their True Name and passes it onto an ally Death Writer.",
@@ -1075,13 +1205,13 @@ local cardData = {
         Attack = 98000,
         Health = 89000,
         AttackIntervalSeconds = 5.0,
-        Category = "Magic World",
+        Category = "Mage",
         Rarity = "Mythic",
         ArtFitMode = "Crop",
-        ArtAssetId = "rbxassetid://126141819707798",
+        ArtAssetId = "rbxassetid://102341478024939",
         AbilityId = "AttackDamageBoost",
 		AbilityCooldownSeconds = 15,
-		Description = "Elf Mage deals 100% more damage against cards containing Demon. Every ? seconds, this card casts barrier magic, giving herself a shield for 50% of her health. After ? seconds, Elf Mage casts an magic spell that blasts the enemy party for ?% of her damage and leaves lingering magic in the field that damages the enemy over time for ?% of her damage."
+		Description = "Elf Mage deals 100% more damage against cards containing Demon. Every ? seconds, this card casts barrier magic, giving herself a shield for 50% of her health. After ? seconds, Elf Mage casts an magic spell that blasts the enemy party for ?% of her damage and leaves lingering magic in the field lasting ? seconds that damages the enemy over time for ?% of her damage ."
     },
     ["power"] = {
         Name = "Blood Fiend",
@@ -1104,7 +1234,7 @@ local cardData = {
         Category = "Magic World",
         Rarity = "Rare",
         ArtFitMode = "Crop",
-        ArtAssetId = "rbxassetid://108032115040659",
+        ArtAssetId = "rbxassetid://122859429417721",
         AbilityId = "AttackDamageBoost",
 		AbilityCooldownSeconds = 15,
 		Description = "Upon death, Immortal Witch revives back to max health. This card has immunity to any control effects.",
@@ -1179,11 +1309,194 @@ local cardData = {
         Health = 10000000,
         AttackIntervalSeconds = 8.0,
         Category = "NPC",
+        CombatCategory = "Mage",
         ArtFitMode = "Fit",
         ArtAssetId = "rbxassetid://130664963456992",
         AbilityId = "IceAge",
         AbilityCooldownSeconds = 20,
         IsNpcCard = true
+    },
+    ["esidisi"] = {
+        Name = "Esidisi",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://86572916676851",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["wamuu"] = {
+        Name = "Wamuu",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://135096618607919",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["vanillaice"] = {
+        Name = "Vanilla Ice",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://92306625339467",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["kars"] = {
+        Name = "Kars",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://107660031177357",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["diotheworld"] = {
+        Name = "Dio The World",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://127327372684047",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["stroheim"] = {
+        Name = "Stroheim",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://103040801624051",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["caesarzeppeli"] = {
+        Name = "Caesar Zeppeli",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://71013413568416",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["josephjoestar"] = {
+        Name = "Joseph Joestar",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://98039365115901",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["avdol"] = {
+        Name = "Avdol",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://76335794806140",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["iggy"] = {
+        Name = "Iggy",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://102872133182965",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["kakyoin"] = {
+        Name = "Kakyoin",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://93638349202211",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["jotarostarplatinum"] = {
+        Name = "Jotaro Star Platinum",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://119816365690678",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["speedwagon"] = {
+        Name = "Speedwagon",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://106644651806678",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
+    },
+    ["polnareff"] = {
+        Name = "Polnareff",
+        Attack = 1200,
+        Health = 4400,
+        AttackIntervalSeconds = 5.0,
+        Category = "Custom",
+        Rarity = "Common",
+        ArtFitMode = "Fit",
+        ArtAssetId = "rbxassetid://104621805156066",
+        AbilityId = "",
+        AbilityCooldownSeconds = 10,
+        Description = "",
     }
 }
 
@@ -1310,6 +1623,34 @@ local function prettifyCardId(cardId)
     return pretty
 end
 
+-- Disabled cards are removed from all future reward/roll pools.
+-- Why: some cards may still be discovered via CardArt auto-registration,
+-- even if they were deleted from the static card table.
+local DISABLED_CARD_IDS = {
+    BeliodusX = true,
+}
+
+local function resolveBaseCardIdForDisabledGate(cardRef)
+    if type(cardRef) ~= "string" or cardRef == "" then
+        return nil
+    end
+    local base = cardRef
+    -- Strip any ::Bordered and ::Foil (tier variants) so all variants map
+    -- to the same disabled base id.
+    base = string.gsub(base, "::Bordered.*$", "")
+    base = string.gsub(base, "::Foil.*$", "")
+    base = string.gsub(base, "^%s*(.-)%s*$", "%1")
+    if base == "" then
+        return nil
+    end
+    return base
+end
+
+local function isCardDisabled(cardId)
+    local base = resolveBaseCardIdForDisabledGate(cardId)
+    return base ~= nil and DISABLED_CARD_IDS[base] == true
+end
+
 local function autoRegisterCardArtCards()
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local cardArtFolder = ReplicatedStorage:FindFirstChild("CardArt")
@@ -1320,6 +1661,12 @@ local function autoRegisterCardArtCards()
     for _, art in ipairs(cardArtFolder:GetChildren()) do
         if art:IsA("Decal") then
             local cardId = art.Name
+
+            if isCardDisabled(cardId) then
+                -- Skip any disabled card discovered from CardArt decals.
+                continue
+            end
+
             local existing = cardData[cardId]
             -- Editable metadata can be set directly on each CardArt decal in Studio:
             -- DisplayName or Label (string), Attack (number), Category (string), Rarity (string)
@@ -1463,6 +1810,15 @@ local function ensureCardDataReady()
         return
     end
     normalizeAllCardDataEntries()
+
+    -- Defensive: remove any disabled cards already present in-memory
+    -- (static table + anything registered earlier in the same lifecycle).
+    for id, _ in pairs(cardData) do
+        if isCardDisabled(id) then
+            cardData[id] = nil
+        end
+    end
+
     registerSpecialVideoCards()
     autoRegisterCardArtCards()
     cardDataReady = true
@@ -1746,7 +2102,11 @@ function CardDatabase.GetCombatProfile(cardRef, opts)
         1,
         tonumber(data.AbilityCooldownSeconds) or tonumber(abilityDef and abilityDef.DefaultCooldownSeconds) or 10
     )
-    local statBlock = CombatStatDefaults.ExtractStatBlockFromCardRow(data)
+	local statBlock = CombatStatDefaults.ExtractStatBlockFromCardRow(data)
+	local category = type(data.Category) == "string" and data.Category or DEFAULT_CARD_TEMPLATE.Category
+	if type(data.CombatCategory) == "string" and data.CombatCategory ~= "" then
+		category = data.CombatCategory
+	end
     return {
         cardName = type(data.Name) == "string" and data.Name or cardRef,
         baseAttack = atk,
@@ -1756,6 +2116,7 @@ function CardDatabase.GetCombatProfile(cardRef, opts)
         abilityId = abilityId,
         abilityCooldownSeconds = abilityCooldownSeconds,
         statBlock = statBlock,
+		cardCategory = category,
     }
 end
 
